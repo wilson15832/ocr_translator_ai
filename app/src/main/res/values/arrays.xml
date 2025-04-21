@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Language options for UI display -->
+    <string-array name="languages">
+        <item>Auto-detect</item>
+        <item>English</item>
+        <item>Chinese (Simplified)</item>
+        <item>Spanish</item>
+        <item>Hindi</item>
+        <item>Arabic</item>
+        <item>Portuguese</item>
+        <item>Bengali</item>
+        <item>Russian</item>
+        <item>Japanese</item>
+        <item>Punjabi</item>
+        <item>German</item>
+        <item>Javanese</item>
+        <item>French</item>
+        <item>Turkish</item>
+        <item>Korean</item>
+        <item>Vietnamese</item>
+        <item>Italian</item>
+        <item>Thai</item>
+        <item>Polish</item>
+    </string-array>
+
+    <!-- Language codes for API calls -->
+    <string-array name="language_codes">
+        <item>auto</item>
+        <item>en</item>
+        <item>zh</item>
+        <item>es</item>
+        <item>hi</item>
+        <item>ar</item>
+        <item>pt</item>
+        <item>bn</item>
+        <item>ru</item>
+        <item>ja</item>
+        <item>pa</item>
+        <item>de</item>
+        <item>jv</item>
+        <item>fr</item>
+        <item>tr</item>
+        <item>ko</item>
+        <item>vi</item>
+        <item>it</item>
+        <item>th</item>
+        <item>pl</item>
+    </string-array>
+
+    <!-- Available LLM models -->
+    <string-array name="models">
+        <item>Gemini 2.0 Flash</item>
+        <item>Gemini 2.0 Pro</item>
+        <item>GPT-4 Turbo</item>
+        <item>GPT-3.5 Turbo</item>
+        <item>Claude 3 Haiku</item>
+        <item>Claude 3 Sonnet</item>
+    </string-array>
+
+    <!-- Model codes for API selection -->
+    <string-array name="model_codes">
+        <item>gemini-2.0-flash</item>
+        <item>gemini-2.0-pro</item>
+        <item>gpt-4-turbo</item>
+        <item>gpt-3.5-turbo</item>
+        <item>claude-3-haiku</item>
+        <item>claude-3-sonnet</item>
+    </string-array>
+</resources>
