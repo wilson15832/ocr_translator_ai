@@ -60,6 +60,7 @@ class ScreenCaptureService : AccessibilityService() {
     private var handlerThread: HandlerThread? = null // Thread for the handler
 
     private var activeTranslationArea: RectF? = null
+    private lateinit var preferencesManager: PreferencesManager // Add PreferencesManager reference
 
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 1003 // 通知 ID，不能和 OverlayService 冲突
@@ -134,12 +135,17 @@ class ScreenCaptureService : AccessibilityService() {
         handlerThread = HandlerThread("MediaProjectionCallbackThread").apply { start() }
         callbackHandler = Handler(handlerThread!!.looper)
 
+        // Initialize PreferencesManager
+        preferencesManager = PreferencesManager.getInstance(this)
+
         setupMediaProjectionCallback()
+        // Load capture interval from preferences
+        setCaptureInterval(preferencesManager.captureInterval)
 
-        setCaptureInterval(3000L)
-
-        // Initialize both dependencies
+        // Initialize TranslationService and load configuration
         translationService = TranslationService.getInstance(this)
+        translationService.loadConfig(preferencesManager)
+        // Initialize TranslationCache
         translationCache = TranslationCache(applicationContext)
 
         // Initialize current rotation
@@ -569,7 +575,9 @@ class ScreenCaptureService : AccessibilityService() {
         var croppedBitmap: Bitmap? = null
 
         try {
-            val preferencesManager = PreferencesManager.getInstance(this)
+            // Load the latest settings before processing
+            translationService.loadConfig(preferencesManager) // Ensure latest settings are used
+
             val sourceLanguage = preferencesManager.sourceLanguage
             val targetLanguage = preferencesManager.targetLanguage
             OCRProcessor.setLanguage(sourceLanguage)

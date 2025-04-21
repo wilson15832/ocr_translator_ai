@@ -94,8 +94,10 @@ class TranslationService private constructor(private val context: Context) {
         config.modelName = preferencesManager.modelName
         config.useLocalModel = preferencesManager.useLocalModel
         config.maxCacheSize = preferencesManager.maxCacheEntries
-        apiKey = preferencesManager.llmApiKey
-        geminiApiEndpoint = preferencesManager.llmApiEndpoint
+
+        // Load API key securely from EncryptedSharedPreferences
+        apiKey = SecureStorage.getEncryptedValue(context, "api_key") ?: ""
+        Log.d("TranslationService", "Loaded API key from SecureStorage (length: ${apiKey.length})")
     }
 
     enum class LlmProvider {
@@ -108,6 +110,11 @@ class TranslationService private constructor(private val context: Context) {
     var currentProvider: LlmProvider = LlmProvider.GEMINI
 
     private suspend fun translateWithAPI(prompt: String): String {
+        // Ensure API key is available before making the call
+        if (apiKey.isEmpty()) {
+            Log.e("TranslationService", "API Key is not set!")
+            throw Exception("API Key is not configured in settings.")
+        }
         return when(currentProvider) {
             LlmProvider.GEMINI -> translateWithGemini(prompt)
             LlmProvider.OPENAI -> translateWithOpenAI(prompt)
@@ -127,8 +134,7 @@ class TranslationService private constructor(private val context: Context) {
         val requestBody = gson.toJson(geminiRequest)
             .toRequestBody("application/json".toMediaTypeOrNull())
 
-        //val urlWithKey = "$geminiApiEndpoint?key=$apiKey"
-        val urlWithKey = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyCQjA4xwLDOb1lrrLL2yVH8RwvdSG5I1A8"
+        val urlWithKey = "$geminiApiEndpoint?key=$apiKey"
 
         val request = Request.Builder()
             .url(urlWithKey)
