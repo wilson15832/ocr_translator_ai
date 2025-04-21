@@ -21,6 +21,7 @@
     <string name="api_endpoint">API Endpoint URL</string>
     <string name="api_key">API Key</string>
     <string name="model">Model:</string>
+    <string name="system_instruction_label">System Instruction</string>
     <string name="use_local_model">Use local model (no API needed)</string>
     <string name="capture_settings">Capture Settings</string>
     <string name="capture_interval">Capture Interval</string>

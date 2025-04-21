@@ -31,6 +31,7 @@ class TranslationService private constructor(private val context: Context) {
     // API Endpoints - can be changed in settings
     private var geminiApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     private var apiKey = "" // To be set from secure storage
+    private var systemInstruction = "" // To be loaded from preferences
 
     // Cache system
     private val translationCache = TranslationCache(context)
@@ -59,7 +60,8 @@ class TranslationService private constructor(private val context: Context) {
 
     // Data classes for API request/response
     data class GeminiContent(
-        @SerializedName("parts") val parts: List<GeminiPart>
+        @SerializedName("parts") val parts: List<GeminiPart>,
+        @SerializedName("role") val role: String? = null // Add role for system/user
     )
 
     data class GeminiPart(
@@ -98,6 +100,9 @@ class TranslationService private constructor(private val context: Context) {
         // Load API key securely from EncryptedSharedPreferences
         apiKey = SecureStorage.getEncryptedValue(context, "api_key") ?: ""
         Log.d("TranslationService", "Loaded API key from SecureStorage (length: ${apiKey.length})")
+
+        systemInstruction = preferencesManager.systemInstruction
+        Log.d("TranslationService", "Loaded System Instruction: $systemInstruction")
     }
 
     enum class LlmProvider {
@@ -124,11 +129,12 @@ class TranslationService private constructor(private val context: Context) {
     }
 
     private suspend fun translateWithGemini(prompt: String): String {
-        // Your existing Gemini implementation
-        val content = GeminiContent(parts = listOf(GeminiPart(text = prompt)))
+        // Use the loaded system instruction
+        val systemContent = GeminiContent(parts = listOf(GeminiPart(text = systemInstruction)), role = "system")
+        val userContent = GeminiContent(parts = listOf(GeminiPart(text = prompt)))
 
         val geminiRequest = GeminiRequest(
-            contents = listOf(content)
+            contents = listOf(systemContent, userContent) // Include both system and user content
         )
 
         val requestBody = gson.toJson(geminiRequest)
@@ -155,8 +161,41 @@ class TranslationService private constructor(private val context: Context) {
     }
 
     private suspend fun translateWithOpenAI(prompt: String): String {
-        // OpenAI implementation
-        return "Not implemented"
+        // OpenAI implementation - Needs to be implemented based on OpenAI API structure
+        // Example (simplified):
+        /*
+        val openaiEndpoint = "YOUR_OPENAI_ENDPOINT" // Get from settings
+        val systemInstruction = "You are a professional and accurate text translator. Translate the provided text accurately while preserving formatting and line breaks." // Use the loaded system instruction
+
+        val requestBody = """
+            {
+                "model": "${config.modelName}",
+                "messages": [
+                    {"role": "system", "content": "$systemInstruction"}, // Add system message
+                    {"role": "user", "content": "$prompt"}
+                ]
+            }
+        """.trimIndent().toRequestBody("application/json".toMediaTypeOrNull())
+
+        val request = Request.Builder()
+            .url(openaiEndpoint)
+            .header("Authorization", "Bearer $apiKey") // Use the loaded API key
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+             if (!response.isSuccessful) {
+                val errorBody = response.body?.string()
+                Log.e("TranslationService", "OpenAI API Request failed: ${response.code}, Body: $errorBody")
+                throw Exception("OpenAI API Request failed: ${response.code}")
+            }
+            val responseBody = response.body?.string() ?: ""
+            // Parse OpenAI response and return translated text
+            return "OpenAI Translation Result (Parsing needed)" // Implement parsing
+        }
+        */
+        Log.w("TranslationService", "OpenAI translation not fully implemented.")
+        return "Translation with OpenAI is not yet fully implemented."
     }
 
     private suspend fun translateWithClaude(prompt: String): String {

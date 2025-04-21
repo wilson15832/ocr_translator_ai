@@ -57,6 +57,8 @@ class SettingsActivity : AppCompatActivity() {
         binding.spinnerModel.setSelection(getModelPosition(preferencesManager.modelName))
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
 
+        binding.editSystemInstruction.setText(preferencesManager.systemInstruction)
+
         // Capture settings
         binding.sliderCaptureInterval.value = preferencesManager.captureInterval / 1000f // Convert to seconds
         binding.switchAutoCapture.isChecked = preferencesManager.autoCaptureEnabled
@@ -159,6 +161,7 @@ class SettingsActivity : AppCompatActivity() {
             binding.editApiEndpoint.isEnabled = !isChecked
             binding.editApiKey.isEnabled = !isChecked
             binding.spinnerModel.isEnabled = !isChecked
+            binding.editSystemInstruction.isEnabled = !isChecked
         }
     }
 
@@ -261,6 +264,8 @@ class SettingsActivity : AppCompatActivity() {
 
         preferencesManager.modelName = modelCodes[binding.spinnerModel.selectedItemPosition]
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
+
+        preferencesManager.systemInstruction = binding.editSystemInstruction.text.toString()
 
         // Capture settings
         preferencesManager.captureInterval = (binding.sliderCaptureInterval.value * 1000).toLong()

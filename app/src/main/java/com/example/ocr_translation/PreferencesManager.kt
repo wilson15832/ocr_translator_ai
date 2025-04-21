@@ -21,9 +21,16 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_PROJECTION_RESULT_CODE = "projection_result_code"
         private const val KEY_SOURCE_LANGUAGE = "source_language"
         private const val KEY_TARGET_LANGUAGE = "target_language"
+
         private const val KEY_LLM_API_ENDPOINT = "llm_api_endpoint"
         private const val KEY_LLM_API_KEY = "llm_api_key"
         private const val KEY_MODEL_NAME = "model_name"
+        private const val KEY_SYSTEM_INSTRUCTION = "system_instruction"
+        // Default values
+        private const val DEFAULT_LLM_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        private const val DEFAULT_MODEL_NAME = "gemini-2.0-flash"
+        private const val DEFAULT_SYSTEM_INSTRUCTION = "You are a professional and accurate text translator. Translate the provided text accurately while preserving formatting and line breaks."
+
         private const val KEY_USE_LOCAL_MODEL = "use_local_model"
         private const val KEY_CAPTURE_INTERVAL = "capture_interval"
         private const val KEY_AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
@@ -223,6 +230,10 @@ class PreferencesManager private constructor(context: Context) {
         get() = prefs.getInt(KEY_KEEP_HISTORY_DAYS, 7)
         set(value) = prefs.edit { putInt(KEY_KEEP_HISTORY_DAYS, value) }
 
+    var systemInstruction: String
+        get() = prefs.getString(KEY_SYSTEM_INSTRUCTION, DEFAULT_SYSTEM_INSTRUCTION) ?: DEFAULT_SYSTEM_INSTRUCTION
+        set(value) = prefs.edit().putString(KEY_SYSTEM_INSTRUCTION, value).apply()
+
     var preserveFormatting: Boolean
         get() = prefs.getBoolean("preserve_formatting", true)
         set(value) = prefs.edit { putBoolean("preserve_formatting", value) }
@@ -263,6 +274,7 @@ class PreferencesManager private constructor(context: Context) {
             remove(KEY_CACHE_TTL_HOURS)
             remove(KEY_KEEP_HISTORY_DAYS)
             // Decide if you want to reset translation_active etc. too
+            systemInstruction = DEFAULT_SYSTEM_INSTRUCTION
         }
         // Applying default values immediately might be better depending on your logic
         // Or rely on the getters providing defaults when the key is missing.
