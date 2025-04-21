@@ -21,6 +21,7 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_PROJECTION_RESULT_CODE = "projection_result_code"
         private const val KEY_SOURCE_LANGUAGE = "source_language"
         private const val KEY_TARGET_LANGUAGE = "target_language"
+        private const val KEY_LLM_INSTRUCTION = "llm_instruction"
         private const val KEY_LLM_API_ENDPOINT = "llm_api_endpoint"
         private const val KEY_LLM_API_KEY = "llm_api_key"
         private const val KEY_MODEL_NAME = "model_name"
@@ -171,6 +172,10 @@ class PreferencesManager private constructor(context: Context) {
             prefs.edit { putString(KEY_TARGET_LANGUAGE, value) }
         }
 
+    var llmInstruction: String
+        get() = prefs.getString(KEY_LLM_INSTRUCTION, "Be faithful to the original, fluent in expression, and graceful in style.") ?: "Be faithful to the original, fluent in expression, and graceful in style."
+        set(value) = prefs.edit { putString(KEY_LLM_INSTRUCTION, value) }
+
     var llmApiEndpoint: String
         get() = prefs.getString(KEY_LLM_API_ENDPOINT, "https://api.openai.com/v1/chat/completions") ?: "https://api.openai.com/v1/chat/completions"
         set(value) = prefs.edit { putString(KEY_LLM_API_ENDPOINT, value) }
@@ -249,6 +254,7 @@ class PreferencesManager private constructor(context: Context) {
         prefs.edit {
             remove(KEY_SOURCE_LANGUAGE)
             remove(KEY_TARGET_LANGUAGE)
+            remove(KEY_LLM_INSTRUCTION)
             remove(KEY_LLM_API_ENDPOINT)
             remove(KEY_LLM_API_KEY) // Be careful resetting API keys
             remove(KEY_MODEL_NAME)
