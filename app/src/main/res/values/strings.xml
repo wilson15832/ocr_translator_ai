@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App basics -->
+    <string name="app_name">Screen Translator</string>
+    <string name="app_description">Translate any text on your screen in real-time using AI</string>
+    <string name="app_logo">App Logo</string>
+
+    <!-- Main activity -->
+    <string name="start_translation">Start Translation</string>
+    <string name="stop_translation">Stop Translation</string>
+    <string name="settings">Settings</string>
+    <string name="language_settings">Language Settings</string>
+    <string name="source_language">From:</string>
+    <string name="target_language">To:</string>
+    <string name="permissions_info">This app requires overlay, accessibility and screen capture permissions to function properly.</string>
+
+    <!-- Settings activity -->
+    <string name="settings_title">Settings</string>
+    <string name="translation_settings">Translation Settings</string>
+    <string name="llm_api_settings">LLM API Settings</string>
+    <string name="api_endpoint">API Endpoint URL</string>
+    <string name="api_key">API Key</string>
+    <string name="model">Model:</string>
+    <string name="use_local_model">Use local model (no API needed)</string>
+    <string name="capture_settings">Capture Settings</string>
+    <string name="capture_interval">Capture Interval</string>
+    <string name="auto_capture">Auto-capture when screen changes</string>
+    <string name="display_settings">Display Settings</string>
+    <string name="text_size">Text Size</string>
+    <string name="overlay_opacity">Overlay Opacity</string>
+    <string name="highlight_original_text">Highlight original text</string>
+    <string name="use_alternative_style">Use speech bubble style</string>
+    <string name="cache_settings">Cache Settings</string>
+    <string name="max_cache_entries">Maximum Cache Entries</string>
+    <string name="cache_ttl">Cache Lifetime</string>
+    <string name="history_settings">History Settings</string>
+    <string name="keep_history_days">Keep History For</string>
+    <string name="save">Save</string>
+    <string name="reset">Reset</string>
+    <string name="settings_saved">Settings saved</string>
+    <string name="settings_reset">Settings reset to defaults</string>
+
+    <!-- Value formatters -->
+    <string name="seconds_value">%.1fs</string>
+    <string name="multiplier_value">%.1fx</string>
+    <string name="percentage_value">%d%%</string>
+    <string name="hours_value">%dh</string>
+    <string name="days_value">%dd</string>
+
+    <!-- Overlay control panel -->
+    <string name="pause_translation">Pause</string>
+    <string name="close_translation">Close</string>
+    <string name="expand_controls">More Options</string>
+    <string name="collapse_controls">Less Options</string>
+    <string name="highlight">Highlight</string>
+    <string name="text_copied_to_clipboard">Text copied to clipboard</string>
+
+    <!-- Permissions -->
+    <string name="overlay_permission_title">Overlay Permission</string>
+    <string name="overlay_permission_message">Screen Translator needs to draw over other apps to show translations. Please grant this permission.</string>
+    <string name="accessibility_permission_title">Accessibility Permission</string>
+    <string name="accessibility_permission_message">Screen Translator needs accessibility access to detect text on screen. This will not record your keystrokes or collect personal data.</string>
+    <string name="capture_permission_title">Screen Capture</string>
+    <string name="capture_permission_message">Screen Translator needs to capture screen content to find text for translation.</string>
+
+    <!-- Service notifications -->
+    <string name="translation_active">Translation service is active</string>
+    <string name="tap_to_configure">Tap to configure</string>
+
+    <!-- Translation menu -->
+    <string name="copy_translation">Copy Translation</string>
+    <string name="copy_original">Copy Original Text</string>
+    <string name="share">Share</string>
+
+    <string name="notification_permission_title">Notification Permission</string>
+    <string name="notification_permission_message">This permission is required to show status notifications when translating</string>
+
+    <string name="media_projection_permission_title">Screen Capture Permission</string>
+    <string name="media_projection_permission_message">This permission is required to capture screen content for translation</string>
+
+    <string name="capture_notification_channel_name">Screen Capture</string>
+    <string name="capture_notification_text">Screen capture service is running</string>
+
+    <string name="translation_areas">Translation Areas</string>
+    <string name="add_area">Add Area</string>
+    <string name="save_area">Save Area</string>
+    <string name="cancel">Cancel</string>
+    <string name="area_selection_instruction">Drag to select an area for translation</string>
+    <string name="clear_area">Use Full Screen (Clear Area)</string>
+    <string name="area_selection_title">Select Area for Translation</string>
+    <string name="area_name_hint">Area name</string>
+    <string name="area_save_dialog_title">Save Translation Area</string>
+    <string name="area_activated">Area activated for translation</string>
+    <string name="area_cleared">Using full screen for translation</string>
+    <string name="area_deleted">Area deleted</string>
+
+</resources>
