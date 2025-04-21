@@ -182,14 +182,24 @@ class OverlayService : Service() {
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
         private const val TAG = "OverlayService"
 
+        // Add a variable to store the last translation results
+        private var lastTranslationResults: List<TranslationService.TranslatedBlock>? = null
+
         fun getTranslationData(): LiveData<List<TranslationService.TranslatedBlock>> = translationData
 
+        // Modified to store the last results
         fun showTranslation(translations: List<TranslationService.TranslatedBlock>) {
-            Log.d(TAG, "showTranslation called with ${translations.size} items.") // 添加日志
+            Log.d(TAG, "showTranslation called with ${translations.size} items.")
             if (translations.isNotEmpty()) {
-                Log.d(TAG, "First item original: ${translations[0].originalText}, translated: ${translations[0].translatedText}") // 记录第一条看看
+                Log.d(TAG, "First item original: ${translations[0].originalText}, translated: ${translations[0].translatedText}")
             }
+            lastTranslationResults = translations
             translationData.postValue(translations)
+        }
+
+        // Add a method to get the last translation results
+        fun getLastTranslationResults(): List<TranslationService.TranslatedBlock>? {
+            return lastTranslationResults
         }
     }
 

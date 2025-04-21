@@ -93,5 +93,5 @@
     <string name="area_activated">Area activated for translation</string>
     <string name="area_cleared">Using full screen for translation</string>
     <string name="area_deleted">Area deleted</string>
-
+    <string name="llm_instruction">Instruction for LLM</string>
 </resources>

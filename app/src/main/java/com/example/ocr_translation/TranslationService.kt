@@ -43,7 +43,8 @@ class TranslationService private constructor(private val context: Context) {
         var preferSpeed: Boolean = false,    // Speed vs quality tradeoff
         var modelName: String = "gpt-4-turbo", // Default model
         var useLocalModel: Boolean = false,  // Option for on-device models
-        var maxCacheSize: Int = 100          // Max entries in cache
+        var maxCacheSize: Int = 100,          // Max entries in cache
+        var instruction: String = ""
     )
 
     var config = TranslationConfig()
@@ -96,6 +97,7 @@ class TranslationService private constructor(private val context: Context) {
         config.maxCacheSize = preferencesManager.maxCacheEntries
         apiKey = preferencesManager.llmApiKey
         geminiApiEndpoint = preferencesManager.llmApiEndpoint
+        config.instruction = preferencesManager.llmInstruction
     }
 
     enum class LlmProvider {
@@ -127,8 +129,7 @@ class TranslationService private constructor(private val context: Context) {
         val requestBody = gson.toJson(geminiRequest)
             .toRequestBody("application/json".toMediaTypeOrNull())
 
-        //val urlWithKey = "$geminiApiEndpoint?key=$apiKey"
-        val urlWithKey = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=AIzaSyCQjA4xwLDOb1lrrLL2yVH8RwvdSG5I1A8"
+        val urlWithKey = "$geminiApiEndpoint?key=$apiKey"
 
         val request = Request.Builder()
             .url(urlWithKey)
@@ -162,8 +163,7 @@ class TranslationService private constructor(private val context: Context) {
     // Main translation function
     suspend fun translateText(
         textBlocks: List<OCRProcessor.TextBlock>,
-        sourceLanguage: String,
-        targetLanguage: String
+        instructions: String,
     ): List<TranslatedBlock> {
         return withContext(Dispatchers.IO) {
             // Check cache first
@@ -183,7 +183,7 @@ class TranslationService private constructor(private val context: Context) {
             }
 
             // Create prompt for LLM
-            val prompt = createTranslationPrompt(combinedText, sourceLanguage, targetLanguage)
+            val prompt = createTranslationPrompt(combinedText, config.instruction)
 
             try {
                 val result = if (config.useLocalModel) {
@@ -225,14 +225,14 @@ class TranslationService private constructor(private val context: Context) {
     }
 
     // Create prompt for LLM translation
-    private fun createTranslationPrompt(text: String, sourceLanguage: String, targetLanguage: String): String {
+    private fun createTranslationPrompt(text: String, instructions: String): String {
         Log.d("TranslationService", "Translate from source text: ${text}")
-        Log.d("TranslationService", "Translate from source language: ${sourceLanguage}")
-        Log.d("TranslationService", "Translate to target language: ${targetLanguage}")
         return """
-        Translate the following text from ${sourceLanguage} to ${targetLanguage}.
+        Translate the following text from ${config.sourceLanguage} to ${config.targetLanguage}.
+        Requirement:
         Maintain the original formatting and layout as much as possible.
         Keep the BLOCK_XXX: prefixes in the output but don't translate them.
+        ${instructions}
         
         Text to translate:
         $text

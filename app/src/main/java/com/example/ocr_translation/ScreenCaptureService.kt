@@ -55,6 +55,13 @@ class ScreenCaptureService : AccessibilityService() {
     private lateinit var translationService: TranslationService
     private lateinit var translationCache: TranslationCache
 
+    private var lastOCRTextContent: String? = null
+    private var lastOCRBoundingBoxes: List<Rect>? = null
+    private var textStabilityCounter = 0
+    private val requiredStableFrames = 2 // Number of stable frames before translating
+    private var lastTranslationTimestamp: Long = 0
+    private val minTranslationInterval = 1000L // Minimum 1 second between forced translations
+
     private var mediaProjectionCallback: MediaProjection.Callback? = null
     private var callbackHandler: Handler? = null // Handler for the callback
     private var handlerThread: HandlerThread? = null // Thread for the handler
@@ -140,6 +147,7 @@ class ScreenCaptureService : AccessibilityService() {
 
         // Initialize both dependencies
         translationService = TranslationService.getInstance(this)
+        //translationService.loadConfig()
         translationCache = TranslationCache(applicationContext)
 
         // Initialize current rotation
@@ -520,6 +528,86 @@ class ScreenCaptureService : AccessibilityService() {
         }
     }
 
+    // Modified method to combine OCR blocks for translation
+    private suspend fun translateCombinedBlocks(extractedText: List<OCRProcessor.TextBlock>, instruction: String): List<TranslationService.TranslatedBlock> {
+        // First, check if translation is needed
+        if (!needsTranslation(extractedText)) {
+            Log.d("ScreenCaptureService", "Skipping translation as no significant change detected")
+            // Return the last translation results or empty list
+            return OverlayService.getLastTranslationResults() ?: emptyList()
+        }
+
+        Log.d("ScreenCaptureService", "Significant change detected, performing combined translation")
+
+        // Create a single string with all OCR text
+        val combinedText = StringBuilder()
+
+        // Extract and combine text from all blocks
+        extractedText.forEach { block ->
+            combinedText.append(block.text).append("\n")
+        }
+
+        val combinedString = combinedText.toString().trim()
+
+        // If there's no text, return empty results
+        if (combinedString.isEmpty()) {
+            Log.d("ScreenCaptureService", "No text to translate after combining blocks")
+            return emptyList()
+        }
+
+        // Create a single "mega-block" for all the text
+        var megaBox = extractedText.first().boundingBox
+        for (block in extractedText.drop(1)) {
+            val current = Rect(megaBox)
+            current.union(block.boundingBox)
+            megaBox = current
+        }
+
+        // Create a dummy block list with our combined text
+        val combinedBlock = mutableListOf<OCRProcessor.TextBlock>()
+        combinedBlock.add(
+            OCRProcessor.TextBlock(
+                text = combinedString,
+                boundingBox = megaBox,
+                confidence = 1.0f
+            )
+        )
+
+        // Translate the combined text
+        val translatedResult = translationService.translateText(
+            combinedBlock,
+            instruction
+        )
+
+        // If we got a translation
+        if (translatedResult.isNotEmpty()) {
+            val translatedCombinedText = translatedResult[0].translatedText
+
+            // Now try to map the translated text back to original blocks
+            val translatedParts = translatedCombinedText.split("\n")
+
+            // Create final translated blocks matching the originals
+            return extractedText.mapIndexed { index, originalBlock ->
+                val translatedText = if (index < translatedParts.size) {
+                    translatedParts[index]
+                } else {
+                    // Fallback if we have fewer translated parts than originals
+                    "..."
+                }
+
+                TranslationService.TranslatedBlock(
+                    originalText = originalBlock.text,
+                    translatedText = translatedText,
+                    boundingBox = originalBlock.boundingBox,
+                    sourceLanguage = "auto", // Use your actual source language
+                    targetLanguage = "auto"  // Use your actual target language
+                )
+            }
+        }
+
+        return emptyList()
+    }
+
     private fun createForegroundNotification(): Notification {
         // 创建一个点击通知时打开应用主界面的 Intent
         val notificationIntent = Intent(this, MainActivity::class.java)
@@ -574,6 +662,8 @@ class ScreenCaptureService : AccessibilityService() {
             val targetLanguage = preferencesManager.targetLanguage
             OCRProcessor.setLanguage(sourceLanguage)
 
+            translationService.loadConfig(preferencesManager)
+
             Log.d("ScreenCaptureService", "Attempting to crop bitmap to area: $activeTranslationArea")
             // Apply the custom area if one is active - safely with null checks
             if (activeTranslationArea != null) {
@@ -609,28 +699,30 @@ class ScreenCaptureService : AccessibilityService() {
             Log.d("ScreenCaptureService", "Calling OCRProcessor.processImage...")
             OCRProcessor.processImage(finalBitmap) { extractedText ->
                 try {
-                    Log.d("ScreenCaptureService", "OCR callback received with text: ${extractedText?.size ?: 0} items")
+                    Log.d("ScreenCaptureService", "OCR callback received with text: ${extractedText.size} items")
 
                     // Only process if we have text and bitmaps are still valid
-                    if (extractedText?.isNotEmpty() == true && !finalBitmap.isRecycled) {
+                    if (extractedText.isNotEmpty() && !finalBitmap.isRecycled) {
                         serviceScope.launch {
                             try {
-                                Log.d("ScreenCaptureService", "Starting translation for ${extractedText.size} items")
-                                val translatedResultList = translationService.translateText(
+                                // Use our new method to translate combined blocks
+                                val translatedResultList = translateCombinedBlocks(
                                     extractedText,
-                                    sourceLanguage,
-                                    targetLanguage
+                                    preferencesManager.llmInstruction
                                 )
-                                Log.d("ScreenCaptureService", "Translation finished. Result count: ${translatedResultList.size}")
-                                OverlayService.showTranslation(translatedResultList)
+
+                                if (translatedResultList.isNotEmpty()) {
+                                    Log.d("ScreenCaptureService", "Translation finished. Result count: ${translatedResultList.size}")
+                                    OverlayService.showTranslation(translatedResultList)
+                                }
                             } catch (e: Exception) {
                                 Log.e("ScreenCaptureService", "Translation task failed", e)
                                 val errorBlock = TranslationService.TranslatedBlock(
                                     originalText = "Error",
                                     translatedText = "Translation failed: ${e.message ?: "Unknown error"}",
                                     boundingBox = android.graphics.Rect(50, 50, 800, 150),
-                                    sourceLanguage ?: "N/A",
-                                    targetLanguage ?: "N/A"
+                                    sourceLanguage = sourceLanguage ?: "N/A",
+                                    targetLanguage = targetLanguage ?: "N/A"
                                 )
                                 OverlayService.showTranslation(listOf(errorBlock))
                             } finally {
@@ -645,6 +737,8 @@ class ScreenCaptureService : AccessibilityService() {
                         // No text found
                         Log.d("ScreenCaptureService", "OCR returned no text, skipping translation")
                         OverlayService.showTranslation(emptyList())
+                        lastOCRTextContent = null // Reset stored text when no content found
+                        lastOCRBoundingBoxes = null
 
                         // Recycle bitmaps safely
                         recycleBitmapSafely(finalBitmap)
@@ -685,6 +779,137 @@ class ScreenCaptureService : AccessibilityService() {
         }
     }
 
+    // Function to calculate similarity between two strings (Levenshtein distance)
+    private fun calculateSimilarity(s1: String, s2: String): Double {
+        if (s1.isEmpty() || s2.isEmpty()) return 0.0
+
+        val distance = levenshteinDistance(s1, s2)
+        val maxLength = maxOf(s1.length, s2.length)
+
+        return 1.0 - (distance.toDouble() / maxLength)
+    }
+
+    // Calculate Levenshtein distance between two strings
+    private fun levenshteinDistance(s1: String, s2: String): Int {
+        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
+
+        for (i in 0..s1.length) {
+            for (j in 0..s2.length) {
+                when {
+                    i == 0 -> dp[i][j] = j
+                    j == 0 -> dp[i][j] = i
+                    else -> {
+                        dp[i][j] = minOf(
+                            dp[i - 1][j] + 1, // Deletion
+                            dp[i][j - 1] + 1, // Insertion
+                            dp[i - 1][j - 1] + if (s1[i - 1] == s2[j - 1]) 0 else 1 // Substitution
+                        )
+                    }
+                }
+            }
+        }
+
+        return dp[s1.length][s2.length]
+    }
+
+
+    // Helper method to combine OCR blocks and determine if content has changed significantly
+    private fun needsTranslation(ocrResults: List<OCRProcessor.TextBlock>): Boolean {
+        // Extract text from all blocks and combine into one string
+        val combinedText = StringBuilder()
+        val blockCount = ocrResults.size
+
+        ocrResults.forEach { block ->
+            combinedText.append(block.text).append("\n")
+        }
+
+        val newTextContent = combinedText.toString().trim()
+        val currentTime = System.currentTimeMillis()
+
+        // First run - always translate
+        if (lastOCRTextContent == null) {
+            Log.d("ScreenCaptureService", "First OCR result, translating")
+            lastOCRTextContent = newTextContent
+            lastTranslationTimestamp = currentTime
+            return true
+        }
+
+        // Calculate text similarity
+        val similarity = calculateSimilarity(lastOCRTextContent!!, newTextContent)
+
+        // Log analysis results
+        Log.d("ScreenCaptureService", "Text analysis - Similarity: $similarity, Character count: ${newTextContent.length} vs ${lastOCRTextContent!!.length}")
+
+        // Case 1: Text is identical or very similar (>95%)
+        if (similarity > 0.95) {
+            Log.d("ScreenCaptureService", "No significant change detected (similarity: $similarity)")
+            return false
+        }
+
+        // Case 2: Text length increased significantly (progressive loading)
+        val lengthRatio = newTextContent.length.toDouble() / lastOCRTextContent!!.length
+
+        if (newTextContent.length > lastOCRTextContent!!.length && lengthRatio > 1.1) {
+            Log.d("ScreenCaptureService", "Text length increased by ${((lengthRatio - 1) * 100).toInt()}%, translating")
+            lastOCRTextContent = newTextContent
+            lastTranslationTimestamp = currentTime
+            return true
+        }
+
+        // Case 3: Content changed significantly (similarity < 85%)
+        if (similarity < 0.85) {
+            Log.d("ScreenCaptureService", "Content changed significantly (similarity: $similarity)")
+            lastOCRTextContent = newTextContent
+            lastTranslationTimestamp = currentTime
+            return true
+        }
+
+        // Case 4: Force periodic update if it's been a while
+        if (currentTime - lastTranslationTimestamp > 5000) { // Every 5 seconds
+            Log.d("ScreenCaptureService", "Forcing periodic update after 5 seconds")
+            lastOCRTextContent = newTextContent
+            lastTranslationTimestamp = currentTime
+            return true
+        }
+
+        // No translation needed
+        Log.d("ScreenCaptureService", "No translation needed")
+        return false
+    }
+
+    // Check if the new text appears to be a progressive loading of the old text
+    private fun isProgressiveTextLoading(oldText: String, newText: String): Boolean {
+        // Simple length check
+        if (newText.length <= oldText.length) return false
+
+        // Check if new text contains most of the old text
+        // This allows for OCR inconsistencies
+        val minCommonLength = (oldText.length * 0.7).toInt() // At least 70% of old text should be found
+
+        // Find the longest common substring
+        val commonLength = findLongestCommonSubstring(oldText, newText)
+
+        // If most of the old text is found in the new text, it's likely progressive loading
+        return commonLength >= minCommonLength
+    }
+
+    // Find the length of the longest common substring
+    private fun findLongestCommonSubstring(s1: String, s2: String): Int {
+        val dp = Array(s1.length + 1) { IntArray(s2.length + 1) }
+        var maxLength = 0
+
+        for (i in 1..s1.length) {
+            for (j in 1..s2.length) {
+                if (s1[i - 1] == s2[j - 1]) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1
+                    maxLength = maxOf(maxLength, dp[i][j])
+                }
+            }
+        }
+
+        return maxLength
+    }
+
     // Helper method to safely recycle bitmaps
     private fun recycleBitmapSafely(bitmap: Bitmap?) {
         if (bitmap != null && !bitmap.isRecycled) {
@@ -695,7 +920,6 @@ class ScreenCaptureService : AccessibilityService() {
             }
         }
     }
-
 
     private fun captureScreen(): Bitmap? {
         var bitmap: Bitmap? = null

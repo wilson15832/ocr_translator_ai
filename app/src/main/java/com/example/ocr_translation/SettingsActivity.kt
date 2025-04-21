@@ -53,6 +53,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.editApiKey.setText(preferencesManager.llmApiKey)
         binding.spinnerModel.setSelection(getModelPosition(preferencesManager.modelName))
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
+        binding.editInstruction.setText(preferencesManager.llmInstruction)
 
         // Capture settings
         binding.sliderCaptureInterval.value = preferencesManager.captureInterval / 1000f // Convert to seconds
@@ -255,6 +256,7 @@ class SettingsActivity : AppCompatActivity() {
         preferencesManager.llmApiKey = binding.editApiKey.text.toString()
         preferencesManager.modelName = modelCodes[binding.spinnerModel.selectedItemPosition]
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
+        preferencesManager.llmInstruction = binding.editInstruction.text.toString()
 
         // Capture settings
         preferencesManager.captureInterval = (binding.sliderCaptureInterval.value * 1000).toLong()
