@@ -50,7 +50,11 @@ class SettingsActivity : AppCompatActivity() {
 
         // LLM API settings
         binding.editApiEndpoint.setText(preferencesManager.llmApiEndpoint)
-        binding.editApiKey.setText(preferencesManager.llmApiKey)
+        //binding.editApiKey.setText(preferencesManager.llmApiKey)
+        // Retrieve API key securely
+        val apiKey = SecureStorage.getEncryptedValue(this, "api_key")
+        binding.editApiKey.setText(apiKey)
+
         binding.spinnerModel.setSelection(getModelPosition(preferencesManager.modelName))
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
         binding.editInstruction.setText(preferencesManager.llmInstruction)
@@ -253,7 +257,11 @@ class SettingsActivity : AppCompatActivity() {
 
         // LLM API settings
         preferencesManager.llmApiEndpoint = binding.editApiEndpoint.text.toString()
-        preferencesManager.llmApiKey = binding.editApiKey.text.toString()
+        //preferencesManager.llmApiKey = binding.editApiKey.text.toString()
+        // Save API key securely
+        val apiKey = binding.editApiKey.text.toString()
+        SecureStorage.setEncryptedValue(this, "api_key", apiKey)
+
         preferencesManager.modelName = modelCodes[binding.spinnerModel.selectedItemPosition]
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
         preferencesManager.llmInstruction = binding.editInstruction.text.toString()
@@ -285,6 +293,8 @@ class SettingsActivity : AppCompatActivity() {
     private fun resetSettings() {
         lifecycleScope.launch {
             preferencesManager.resetToDefaults()
+            // Also clear the securely stored API key on reset
+            SecureStorage.setEncryptedValue(this@SettingsActivity, "api_key", "")
             loadSettings()
             Toast.makeText(this@SettingsActivity, R.string.settings_reset, Toast.LENGTH_SHORT).show()
 

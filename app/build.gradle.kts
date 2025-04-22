@@ -82,6 +82,8 @@ dependencies {
 
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+
 
     //implementation("com.google.cloud:google-cloud-translate:2.3.3") // 使用最新版本
     //implementation("androidx.compose.foundation:foundation:1.5.0")

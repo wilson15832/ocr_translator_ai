@@ -95,7 +95,11 @@ class TranslationService private constructor(private val context: Context) {
         config.modelName = preferencesManager.modelName
         config.useLocalModel = preferencesManager.useLocalModel
         config.maxCacheSize = preferencesManager.maxCacheEntries
-        apiKey = preferencesManager.llmApiKey
+        //apiKey = preferencesManager.llmApiKey
+        // Load API key securely from EncryptedSharedPreferences
+        apiKey = SecureStorage.getEncryptedValue(context, "api_key") ?: ""
+        Log.d("TranslationService", "Loaded API key from SecureStorage (length: ${apiKey.length})")
+
         geminiApiEndpoint = preferencesManager.llmApiEndpoint
         config.instruction = preferencesManager.llmInstruction
     }

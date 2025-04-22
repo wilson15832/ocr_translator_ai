@@ -43,6 +43,15 @@ import android.graphics.Rect
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+import android.app.ActivityManager
+
+
 
 class ScreenCaptureService : AccessibilityService() {
 
@@ -96,6 +105,17 @@ class ScreenCaptureService : AccessibilityService() {
                     currentRotation = newRotation
                     updateCaptureWithRotation()
                 }
+            }
+        }
+    }
+
+    private var isPaused = false
+
+    private val toggleReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == "com.example.ocr_translation.ACTION_TOGGLE_CAPTURE") {
+                isPaused = intent.getBooleanExtra("paused", false)
+                Log.d("ScreenCaptureService", "Capture toggled, isPaused: $isPaused")
             }
         }
     }
@@ -160,11 +180,14 @@ class ScreenCaptureService : AccessibilityService() {
             Log.d("ScreenCaptureService", "Orientation listener enabled")
         }
 
-        val filter = IntentFilter().apply {
+        val filter_area = IntentFilter().apply {
             addAction("com.example.ocr_translation.ACTION_SET_TRANSLATION_AREA")
             addAction("com.example.ocr_translation.ACTION_CLEAR_TRANSLATION_AREA")
         }
-        registerReceiver(areaReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        registerReceiver(areaReceiver, filter_area, Context.RECEIVER_NOT_EXPORTED)
+
+        val toggleFilter = IntentFilter("com.example.ocr_translation.ACTION_TOGGLE_CAPTURE")
+        registerReceiver(toggleReceiver, toggleFilter, Context.RECEIVER_EXPORTED) //FIXME
 
         // Restore any previously saved area
         restoreActiveTranslationArea()
@@ -228,10 +251,16 @@ class ScreenCaptureService : AccessibilityService() {
         val metrics = DisplayMetrics()
         display.getRealMetrics(metrics)
 
+        currentRotation = display.rotation
+        Log.d("ScreenCaptureService", "Current rotation: $currentRotation")
+
+        Log.d("ScreenCaptureService", "Updating screen metrics: w=${metrics.widthPixels}, h=${metrics.heightPixels}, density=${metrics.densityDpi}")
         // Get correct screen dimensions based on rotation
-        val isPortrait = currentRotation == Surface.ROTATION_0 || currentRotation == Surface.ROTATION_180
-        screenWidth = if (isPortrait) metrics.widthPixels else metrics.heightPixels
-        screenHeight = if (isPortrait) metrics.heightPixels else metrics.widthPixels
+        //val isPortrait = currentRotation == Surface.ROTATION_0 || currentRotation == Surface.ROTATION_180
+        //screenWidth = if (isPortrait) metrics.widthPixels else metrics.heightPixels
+        //screenHeight = if (isPortrait) metrics.heightPixels else metrics.widthPixels
+        screenWidth = metrics.widthPixels
+        screenHeight = metrics.heightPixels
         screenDensity = metrics.densityDpi
 
         Log.d("ScreenCaptureService",
@@ -475,23 +504,62 @@ class ScreenCaptureService : AccessibilityService() {
         }
 
         val screenRect = RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+        Log.d("ScreenCaptureService", "Original bitmap dimensions: ${bitmap.width}x${bitmap.height}, rotation: $currentRotation")
+        Log.d("ScreenCaptureService", "Requested crop area: $area")
 
-        // Ensure area is within screen boundaries
-        val validArea = RectF().apply {
-            left = area.left.coerceIn(screenRect.left, screenRect.right)
-            top = area.top.coerceIn(screenRect.top, screenRect.bottom)
-            right = area.right.coerceIn(screenRect.left, screenRect.right)
-            bottom = area.bottom.coerceIn(screenRect.top, screenRect.bottom)
+        // Adjust the area based on screen rotation
+        val adjustedArea = when (currentRotation) {
+            Surface.ROTATION_0 -> area // No adjustment needed
+            Surface.ROTATION_90 -> {
+                // 90° clockwise rotation
+                RectF(
+                    area.top,
+                    bitmap.height - area.right,
+                    area.bottom,
+                    bitmap.height - area.left
+                )
+            }
+            Surface.ROTATION_180 -> {
+                // 180° rotation
+                RectF(
+                    bitmap.width - area.right,
+                    bitmap.height - area.bottom,
+                    bitmap.width - area.left,
+                    bitmap.height - area.top
+                )
+            }
+            Surface.ROTATION_270 -> {
+                // 270° clockwise rotation
+                RectF(
+                    bitmap.height - area.bottom,
+                    area.left,
+                    bitmap.height - area.top,
+                    area.right
+                )
+            }
+            else -> area // Default case
         }
+
+        Log.d("ScreenCaptureService", "Rotation-adjusted crop area: $adjustedArea")
+
+        // Ensure adjusted area is within screen boundaries
+        val validArea = RectF().apply {
+            left = adjustedArea.left.coerceIn(screenRect.left, screenRect.right)
+            top = adjustedArea.top.coerceIn(screenRect.top, screenRect.bottom)
+            right = adjustedArea.right.coerceIn(screenRect.left, screenRect.right)
+            bottom = adjustedArea.bottom.coerceIn(screenRect.top, screenRect.bottom)
+        }
+
+        Log.d("ScreenCaptureService", "Boundary-adjusted crop area: $validArea")
 
         // Additional validation
         if (validArea.right <= validArea.left || validArea.bottom <= validArea.top) {
-            Log.e("ScreenCaptureService", "Invalid crop area: $validArea")
-            return null
+            Log.e("ScreenCaptureService", "Invalid crop area after adjustments: $validArea")
+            return bitmap
         }
 
         // Check if the area has valid dimensions
-        return if (validArea.width() > 10 && validArea.height() > 10) {
+        if (validArea.width() > 10 && validArea.height() > 10) {
             try {
                 // Convert to integer coordinates for cropping
                 val cropRect = Rect(
@@ -507,11 +575,11 @@ class ScreenCaptureService : AccessibilityService() {
                     cropRect.width() <= 0 || cropRect.height() <= 0) {
 
                     Log.e("ScreenCaptureService", "Crop rectangle out of bounds: $cropRect, bitmap: ${bitmap.width}x${bitmap.height}")
-                    return null
+                    return bitmap
                 }
 
                 Log.d("ScreenCaptureService", "Cropping bitmap to: $cropRect")
-                Bitmap.createBitmap(
+                return Bitmap.createBitmap(
                     bitmap,
                     cropRect.left,
                     cropRect.top,
@@ -520,11 +588,11 @@ class ScreenCaptureService : AccessibilityService() {
                 )
             } catch (e: Exception) {
                 Log.e("ScreenCaptureService", "Error cropping bitmap: ${e.message}", e)
-                null
+                return bitmap
             }
         } else {
-            Log.d("ScreenCaptureService", "Area too small to crop, returning null")
-            null
+            Log.d("ScreenCaptureService", "Area too small to crop, using full bitmap")
+            return bitmap
         }
     }
 
@@ -633,6 +701,11 @@ class ScreenCaptureService : AccessibilityService() {
         serviceScope.launch {
             Log.d("ScreenCaptureService", "Periodic capture loop coroutine started.") // <-- 日志7
             while (isRunning) {
+                if (isPaused) {
+                    Log.d(TAG, "Capture paused, skipping iteration.")
+                    Thread.sleep(500)
+                    continue
+                }
                 Log.d("ScreenCaptureService", "Top of capture loop iteration.") // <-- 日志8
                 try {
                     captureScreen()?.let { bitmap ->
@@ -670,6 +743,12 @@ class ScreenCaptureService : AccessibilityService() {
                 try {
                     Log.d("ScreenCaptureService", "Attempting to crop bitmap to area: $activeTranslationArea")
                     croppedBitmap = cropBitmapToArea(localBitmap, activeTranslationArea!!)
+                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                    //saveBitmapToFile(croppedBitmap, "crop_${timestamp}.jpg")
+
+                    // Optionally also save the original for comparison
+                    //saveBitmapToFile(localBitmap, "original_${timestamp}.jpg")
+
 
                     // If cropping failed, fall back to the original bitmap
                     if (croppedBitmap == null) {
@@ -713,7 +792,20 @@ class ScreenCaptureService : AccessibilityService() {
 
                                 if (translatedResultList.isNotEmpty()) {
                                     Log.d("ScreenCaptureService", "Translation finished. Result count: ${translatedResultList.size}")
-                                    OverlayService.showTranslation(translatedResultList)
+                                    if (isOverlayServiceRunning()) {
+                                        OverlayService.showTranslation(translatedResultList)
+                                    } else {
+                                        Log.w("ScreenCaptureService", "OverlayService not running, stopping capture loop")
+                                        // Instead of immediately calling stopSelf(), first stop the capture process
+                                        isRunning = false  // This will make the capture loop exit on its next iteration
+
+                                        // Post the stopSelf with a delay to give time for ongoing operations to complete
+                                        Handler(Looper.getMainLooper()).postDelayed({
+                                            Log.d("ScreenCaptureService", "Now stopping service after waiting for cleanup")
+                                            stopCapture()  // Clean up resources first
+                                            stopSelf()     // Then stop the service
+                                        }, 200)  // Wait 200ms to ensure ongoing operations can complete
+                                    }
                                 }
                             } catch (e: Exception) {
                                 Log.e("ScreenCaptureService", "Translation task failed", e)
@@ -777,6 +869,12 @@ class ScreenCaptureService : AccessibilityService() {
                 }
             }
         }
+    }
+
+    private fun isOverlayServiceRunning(): Boolean {
+        val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        return manager.getRunningServices(Integer.MAX_VALUE)
+            .any { it.service.className == OverlayService::class.java.name }
     }
 
     // Function to calculate similarity between two strings (Levenshtein distance)
@@ -1074,6 +1172,32 @@ class ScreenCaptureService : AccessibilityService() {
         Log.d("ScreenCaptureService", "After update, activeTranslationArea is now: $activeTranslationArea")
     }
 
+    private fun saveBitmapToFile(bitmap: Bitmap?, filename: String) {
+        if (bitmap == null || bitmap.isRecycled) {
+            Log.e("ScreenCaptureService", "Cannot save null or recycled bitmap")
+            return
+        }
+
+        try {
+            // Rest of your function stays the same
+            val directory = File(getExternalFilesDir(null), "debug_images")
+            if (!directory.exists()) {
+                directory.mkdirs()
+            }
+
+            val file = File(directory, filename)
+            val outputStream = FileOutputStream(file)
+
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+            outputStream.flush()
+            outputStream.close()
+
+            Log.d("ScreenCaptureService", "Saved debug image to: ${file.absolutePath}")
+        } catch (e: Exception) {
+            Log.e("ScreenCaptureService", "Error saving bitmap to file", e)
+        }
+    }
+
 
     // Method to restore area settings on service start
     private fun restoreActiveTranslationArea() {
@@ -1101,6 +1225,12 @@ class ScreenCaptureService : AccessibilityService() {
             unregisterReceiver(areaReceiver)
         } catch (e: Exception) {
             Log.w("ScreenCaptureService", "Error unregistering area receiver", e)
+        }
+
+        try {
+            unregisterReceiver(toggleReceiver)
+        } catch (e: Exception) {
+            Log.w("ScreenCaptureService", "Error unregistering toggle receiver", e)
         }
 
         super.onDestroy()
