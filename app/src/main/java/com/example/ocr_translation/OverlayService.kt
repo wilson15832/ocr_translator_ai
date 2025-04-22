@@ -38,7 +38,7 @@ import android.util.DisplayMetrics
 import android.graphics.RectF
 import android.graphics.Canvas
 import android.graphics.Paint
-
+import android.widget.ImageButton
 
 
 class OverlayService : Service() {
@@ -63,6 +63,8 @@ class OverlayService : Service() {
     private var initialOverlayY: Int = 0
     private var initialOverlayTouchX: Float = 0f
     private var initialOverlayTouchY: Float = 0f
+
+    private var isControlPanelExpanded = false
 
     private lateinit var overlayLayoutParams: WindowManager.LayoutParams // <-- 添加这行声明
 
@@ -189,12 +191,16 @@ class OverlayService : Service() {
 
         // Modified to store the last results
         fun showTranslation(translations: List<TranslationService.TranslatedBlock>) {
-            Log.d(TAG, "showTranslation called with ${translations.size} items.")
-            if (translations.isNotEmpty()) {
-                Log.d(TAG, "First item original: ${translations[0].originalText}, translated: ${translations[0].translatedText}")
+            try {
+                Log.d(TAG, "showTranslation called with ${translations.size} items.")
+                if (translations.isNotEmpty()) {
+                    Log.d(TAG, "First item original: ${translations[0].originalText}, translated: ${translations[0].translatedText}")
+                }
+                lastTranslationResults = translations
+                translationData.postValue(translations)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error showing translation, OverlayService may be destroyed", e)
             }
-            lastTranslationResults = translations
-            translationData.postValue(translations)
         }
 
         // Add a method to get the last translation results
@@ -341,7 +347,7 @@ class OverlayService : Service() {
             val controlParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                getOverlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,  // Keep this flag
                 PixelFormat.TRANSLUCENT
             ).apply {
@@ -354,6 +360,7 @@ class OverlayService : Service() {
             setupControlPanelDrag(controlParams)
 
             windowManager.addView(controlPanel, controlParams)
+            updateControlPanelState()
             Log.d(TAG, "Control panel added successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create control panel: ${e.message}", e)
@@ -362,14 +369,27 @@ class OverlayService : Service() {
     }
 
     private fun setupControlPanelButtons() {
-        // Close button
-        controlPanel.findViewById<View>(R.id.btnClose).setOnClickListener {
-            Log.d(TAG, "Close button clicked")
-            stopSelf()
+        controlPanel.findViewById<ImageButton>(R.id.btnExpand).setOnClickListener {
+            isControlPanelExpanded = !isControlPanelExpanded
+            updateControlPanelState()
         }
 
-        // Settings button
-        controlPanel.findViewById<View>(R.id.btnSettings).setOnClickListener {
+        // Close button
+        controlPanel.findViewById<ImageButton>(R.id.btnClose).setOnClickListener {
+            Log.d(TAG, "Close button clicked")
+
+            // Create an explicit intent to stop ScreenCaptureService
+            val captureIntent = Intent(this, ScreenCaptureService::class.java)
+            stopService(captureIntent)
+
+            // Give a small delay before stopping self, to allow ScreenCaptureService to clean up
+            Handler(Looper.getMainLooper()).postDelayed({
+                stopSelf()
+            }, 100)
+        }
+
+        // Settings button (only visible when expanded)
+        controlPanel.findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
             Log.d(TAG, "Settings button clicked")
             val intent = Intent(this, SettingsActivity::class.java)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -382,14 +402,59 @@ class OverlayService : Service() {
             Log.d(TAG, "Pause button clicked, isPaused: $isPaused")
 
             if (isPaused) {
+                // Resume translations
                 translationOverlay.visibility = View.VISIBLE
                 view.tag = false
+
+                val pauseButton = view as ImageButton  // or Button, depending on your UI
+                pauseButton.setImageResource(R.drawable.ic_pause)  // Set to pause icon
+
+                // Send broadcast to resume screen capture
+                val intent = Intent("com.example.ocr_translation.ACTION_TOGGLE_CAPTURE")
+                intent.putExtra("paused", false)
+                sendBroadcast(intent)
                 // Update button icon to pause
             } else {
+                // Pause translations
                 translationOverlay.visibility = View.INVISIBLE
                 view.tag = true
+
+                // Update button icon to play
+                val pauseButton = view as ImageButton  // or Button, depending on your UI
+                pauseButton.setImageResource(R.drawable.ic_start)  // Set to play icon
+
+                // Send broadcast to pause screen capture
+                val intent = Intent("com.example.ocr_translation.ACTION_TOGGLE_CAPTURE")
+                intent.putExtra("paused", true)
+                sendBroadcast(intent)
                 // Update button icon to play
             }
+        }
+    }
+
+    private fun updateControlPanelState() {
+        // Always visible buttons
+        val btnPause = controlPanel.findViewById<ImageButton>(R.id.btnPause)
+        val btnExpand = controlPanel.findViewById<ImageButton>(R.id.btnExpand)
+
+        // Conditionally visible buttons
+        val btnSettings = controlPanel.findViewById<ImageButton>(R.id.btnSettings)
+        val btnClose = controlPanel.findViewById<ImageButton>(R.id.btnClose)
+
+        if (isControlPanelExpanded) {
+            // Show all buttons
+            btnSettings.visibility = View.VISIBLE
+            btnClose.visibility = View.VISIBLE
+
+            // Change expand icon to collapse
+            btnExpand.setImageResource(R.drawable.ic_collapse)
+        } else {
+            // Hide settings and close buttons
+            btnSettings.visibility = View.GONE
+            btnClose.visibility = View.GONE
+
+            // Change collapse icon to expand
+            btnExpand.setImageResource(R.drawable.ic_expand_more)
         }
     }
 

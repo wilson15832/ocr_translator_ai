@@ -30,6 +30,9 @@ import com.example.ocr_translation.AreaManagementFragment
 import com.google.android.material.tabs.TabLayout
 import android.widget.Button
 
+import android.os.Handler
+import android.os.Looper
+
 
 
 
@@ -401,10 +404,24 @@ class MainActivity : AppCompatActivity() {
         Log.i("MainActivity", "Stopping translation services...") // <-- Add Log
         stopService(Intent(this, OverlayService::class.java))
         stopService(Intent(this, ScreenCaptureService::class.java))
+        stopAllServices()
 
         // Update ViewModel
         viewModel.setTranslationActive(false)
     }
+
+    private fun stopAllServices() {
+        // First stop the screen capture service
+        val captureIntent = Intent(this, ScreenCaptureService::class.java)
+        stopService(captureIntent)
+
+        // Then stop the overlay service with a small delay
+        Handler(Looper.getMainLooper()).postDelayed({
+            val overlayIntent = Intent(this, OverlayService::class.java)
+            stopService(overlayIntent)
+        }, 100)
+    }
+
 
     private fun isAccessibilityServiceEnabled(context: Context): Boolean { // 函数名改为更精确的 Enabled
         // 使用 ComponentName 获取规范的服务 ID，更可靠

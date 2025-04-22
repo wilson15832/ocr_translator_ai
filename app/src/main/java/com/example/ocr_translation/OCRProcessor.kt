@@ -74,8 +74,8 @@ object OCRProcessor {
     suspend fun processImage(bitmap: Bitmap, callback: (List<TextBlock>) -> Unit) {
         withContext(Dispatchers.IO) {
             try {
-                //val rotation = convertToImageRotation(currentRotation)
                 // Pass the rotation to MLKit
+
                 val rotation = when (currentRotation) {
                     Surface.ROTATION_0 -> 0
                     Surface.ROTATION_90 -> 90
@@ -106,16 +106,6 @@ object OCRProcessor {
         }
     }
 
-    // Convert Android Surface rotation to MLKit InputImage rotation values
-    private fun convertToImageRotation(screenRotation: Int): Int {
-        return when (screenRotation) {
-            Surface.ROTATION_0 -> 0
-            Surface.ROTATION_90 -> 90
-            Surface.ROTATION_180 -> 180
-            Surface.ROTATION_270 -> 270
-            else -> 0
-        }
-    }
 
     // Extract text blocks with position information
     private fun extractTextBlocks(visionText: Text): List<TextBlock> {
