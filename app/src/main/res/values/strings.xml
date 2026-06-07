@@ -9,23 +9,26 @@
     <string name="start_translation">Start Translation</string>
     <string name="stop_translation">Stop Translation</string>
     <string name="settings">Settings</string>
+    <string name="settings_translation_desc">Languages, model, prompts, scanning</string>
+    <string name="settings_overlay_desc">Result text size, colors, font, in-place</string>
+    <string name="enhanced_ocr_settings">Enhanced OCR</string>
     <string name="language_settings">Language Settings</string>
     <string name="source_language">From:</string>
     <string name="target_language">To:</string>
     <string name="permissions_info">This app requires overlay, accessibility and screen capture permissions to function properly.</string>
 
     <!-- Settings activity -->
-    <string name="settings_title">Settings</string>
+    <string name="settings_title">Translation Settings</string>
     <string name="translation_settings">Translation Settings</string>
     <string name="llm_api_settings">LLM API Settings</string>
     <string name="api_endpoint">API Endpoint URL</string>
     <string name="api_key">API Key</string>
     <string name="model">Model:</string>
     <string name="use_local_model">Use local model (no API needed)</string>
-    <string name="capture_settings">Capture Settings</string>
-    <string name="capture_interval">Capture Interval</string>
+    <string name="capture_settings">Scan Settings</string>
+    <string name="capture_interval">Scan interval</string>
     <string name="auto_capture">Auto-capture when screen changes</string>
-    <string name="display_settings">Display Settings</string>
+    <string name="display_settings">Overlay Settings</string>
     <string name="text_size">Text Size</string>
     <string name="overlay_opacity">Overlay Opacity</string>
     <string name="highlight_original_text">Highlight original text</string>
@@ -50,6 +53,22 @@
     <!-- Overlay control panel -->
     <string name="pause_translation">Pause</string>
     <string name="close_translation">Close</string>
+    <string name="select_area">Select area</string>
+    <string name="select_area_hint">Drag to select the area to translate</string>
+    <string name="show_area_border">Show selected area border</string>
+    <string name="translate_now">Translate now</string>
+    <string name="auto_mode">Auto mode</string>
+    <string name="expand_handle">Expand</string>
+    <string name="fold_favorite">Button shown when folded</string>
+    <string name="font_color">Text color</string>
+    <string name="background_color">Background color</string>
+    <string name="in_place_mode">In-place translation (cover original text)</string>
+    <string name="use_accessibility">Enhanced OCR via accessibility (apps only)</string>
+    <string name="use_accessibility_hint">Reads text directly from the app for exact results. Does not work for games that draw text on a canvas (e.g. FGO) — those still use screen capture.</string>
+    <string name="enable_accessibility_service">Enable accessibility service…</string>
+    <string name="font_style">Font</string>
+    <string name="system_prompt_label">System prompt</string>
+    <string name="user_prompt_label">User prompt ({source}, {target}, {text})</string>
     <string name="expand_controls">More Options</string>
     <string name="collapse_controls">Less Options</string>
     <string name="highlight">Highlight</string>

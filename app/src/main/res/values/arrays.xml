@@ -56,6 +56,8 @@
         <item>GPT-3.5 Turbo</item>
         <item>Claude 3 Haiku</item>
         <item>Claude 3 Sonnet</item>
+        <item>DeepSeek v4 Flash</item>
+        <item>DeepSeek v4 Pro</item>
     </string-array>
 
     <!-- Model codes for API selection -->
@@ -66,5 +68,59 @@
         <item>gpt-3.5-turbo</item>
         <item>claude-3-haiku</item>
         <item>claude-3-sonnet</item>
+        <item>deepseek-v4-flash</item>
+        <item>deepseek-v4-pro</item>
+    </string-array>
+
+    <!-- Folded floating-bar favorite -->
+    <string-array name="fold_options">
+        <item>Manual translate</item>
+        <item>Auto mode</item>
+    </string-array>
+    <string-array name="fold_option_values">
+        <item>manual</item>
+        <item>auto</item>
+    </string-array>
+
+    <!-- Overlay text / background colors -->
+    <string-array name="overlay_colors">
+        <item>White</item>
+        <item>Yellow</item>
+        <item>Green</item>
+        <item>Cyan</item>
+        <item>Red</item>
+        <item>Black</item>
+    </string-array>
+    <string-array name="overlay_color_values">
+        <item>#FFFFFFFF</item>
+        <item>#FFFFEB3B</item>
+        <item>#FF4CAF50</item>
+        <item>#FF00BCD4</item>
+        <item>#FFF44336</item>
+        <item>#FF000000</item>
+    </string-array>
+
+    <!-- Translation result fonts (system families; fall back to default if unavailable) -->
+    <string-array name="font_options">
+        <item>Default</item>
+        <item>Light</item>
+        <item>Medium</item>
+        <item>Bold</item>
+        <item>Condensed</item>
+        <item>Serif</item>
+        <item>Monospace</item>
+        <item>Kosugi Maru (rounded)</item>
+        <item>ZCOOL KuaiLe (fun)</item>
+    </string-array>
+    <string-array name="font_values">
+        <item>sans-serif</item>
+        <item>sans-serif-light</item>
+        <item>sans-serif-medium</item>
+        <item>sans-serif-black</item>
+        <item>sans-serif-condensed</item>
+        <item>serif</item>
+        <item>monospace</item>
+        <item>kosugi_maru</item>
+        <item>zcool_kuaile</item>
     </string-array>
 </resources>

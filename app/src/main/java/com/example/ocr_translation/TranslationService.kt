@@ -1,6 +1,7 @@
 package com.example.ocr_translation
 
 import android.content.Context
+import android.hardware.usb.UsbEndpoint
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 import com.example.ocr_translation.SecureStorage
 import android.util.Log
+import androidx.compose.ui.semantics.Role
+import com.example.ocr_translation.LlmClient
+import com.example.ocr_translation.GeminiClient
+import com.example.ocr_translation.OpenAiCompatibleClient
 
 
 class TranslationService private constructor(private val context: Context) {
@@ -43,48 +48,25 @@ class TranslationService private constructor(private val context: Context) {
         var preferSpeed: Boolean = false,    // Speed vs quality tradeoff
         var modelName: String = "gpt-4-turbo", // Default model
         var useLocalModel: Boolean = false,  // Option for on-device models
-        var maxCacheSize: Int = 100          // Max entries in cache
+        var maxCacheSize: Int = 100,         // Max entries in cache
+        var systemPrompt: String = "",
+        var userPrompt: String = ""
     )
 
     var config = TranslationConfig()
 
     // OkHttp client for API calls
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
+        // Fail a blocked/unreachable host fast (e.g. Google endpoints on a restricted network)
+        // instead of hanging for 30s; readTimeout still allows time for the model to generate.
+        .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(40, TimeUnit.SECONDS)   // hard ceiling for the whole request
         .build()
 
     // Gson for JSON parsing
     private val gson = Gson()
-
-    // Data classes for API request/response
-    data class GeminiContent(
-        @SerializedName("parts") val parts: List<GeminiPart>
-    )
-
-    data class GeminiPart(
-        @SerializedName("text") val text: String
-    )
-
-    data class GeminiRequest(
-        @SerializedName("contents") val contents: List<GeminiContent>,
-        @SerializedName("generationConfig") val generationConfig: GenerationConfig = GenerationConfig()
-    )
-
-    data class GenerationConfig(
-        @SerializedName("temperature") val temperature: Double = 0.2,
-        @SerializedName("topK") val topK: Int = 40,
-        @SerializedName("topP") val topP: Double = 0.95,
-        @SerializedName("maxOutputTokens") val maxOutputTokens: Int = 1024
-    )
-
-    data class GeminiResponse(
-        @SerializedName("candidates") val candidates: List<GeminiCandidate>
-    )
-
-    data class GeminiCandidate(
-        @SerializedName("content") val content: GeminiContent
-    )
 
     fun loadConfig(preferencesManager: PreferencesManager) {
         config.sourceLanguage = preferencesManager.sourceLanguage
@@ -94,68 +76,23 @@ class TranslationService private constructor(private val context: Context) {
         config.modelName = preferencesManager.modelName
         config.useLocalModel = preferencesManager.useLocalModel
         config.maxCacheSize = preferencesManager.maxCacheEntries
+        config.systemPrompt = preferencesManager.systemPrompt
+        config.userPrompt = preferencesManager.userPrompt
         apiKey = preferencesManager.llmApiKey
-        geminiApiEndpoint = preferencesManager.llmApiEndpoint
-    }
-
-    enum class LlmProvider {
-        GEMINI,
-        OPENAI,
-        CLAUDE
-        // Add others as needed
-    }
-
-    var currentProvider: LlmProvider = LlmProvider.GEMINI
-
-    private suspend fun translateWithAPI(prompt: String): String {
-        return when(currentProvider) {
-            LlmProvider.GEMINI -> translateWithGemini(prompt)
-            LlmProvider.OPENAI -> translateWithOpenAI(prompt)
-            LlmProvider.CLAUDE -> translateWithClaude(prompt)
-            // Add cases for other providers
         }
-    }
 
-    private suspend fun translateWithGemini(prompt: String): String {
-        // Your existing Gemini implementation
-        val content = GeminiContent(parts = listOf(GeminiPart(text = prompt)))
-
-        val geminiRequest = GeminiRequest(
-            contents = listOf(content)
-        )
-
-        val requestBody = gson.toJson(geminiRequest)
-            .toRequestBody("application/json".toMediaTypeOrNull())
-
-        //val urlWithKey = "$geminiApiEndpoint?key=$apiKey"
-        val urlWithKey = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=***REMOVED***"
-
-        val request = Request.Builder()
-            .url(urlWithKey)
-            .post(requestBody)
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw Exception("API 请求失败: ${response.code}")
-            }
-
-            val responseBody = response.body?.string() ?: ""
-            val geminiResponse = gson.fromJson(responseBody, GeminiResponse::class.java)
-
-            return geminiResponse.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                ?: throw Exception("API 返回了空响应")
+    private fun createLlmClent(): LlmClient{
+        val model = config.modelName
+        return when {
+            model.startsWith("deepseek") ->
+                OpenAiCompatibleClient(client, gson, apiKey,
+                    "https://api.deepseek.com/chat/completions", model)
+            model.startsWith("gpt") ->
+                OpenAiCompatibleClient(client, gson, apiKey,
+                    "https://api.openai.com/v1/chat/completions", model)
+            else ->  // gemini-* and fallback
+                GeminiClient(client, gson, apiKey, model)
         }
-    }
-
-    private suspend fun translateWithOpenAI(prompt: String): String {
-        // OpenAI implementation
-        return "Not implemented"
-    }
-
-    private suspend fun translateWithClaude(prompt: String): String {
-        // Claude implementation
-        return "Not implemented"
     }
 
 
@@ -167,7 +104,9 @@ class TranslationService private constructor(private val context: Context) {
     ): List<TranslatedBlock> {
         return withContext(Dispatchers.IO) {
             // Check cache first
-            val cacheKey = generateCacheKey(textBlocks, config.targetLanguage)
+            loadConfig(PreferencesManager.getInstance(context))
+
+            val cacheKey = generateCacheKey(textBlocks, sourceLanguage, targetLanguage)
             val cachedResult = translationCache.getTranslation(cacheKey)
 
             if (cachedResult != null) {
@@ -189,7 +128,7 @@ class TranslationService private constructor(private val context: Context) {
                 val result = if (config.useLocalModel) {
                     translateWithLocalModel(prompt)
                 } else {
-                    translateWithAPI(prompt)
+                    createLlmClent().translate(config.systemPrompt, prompt)
                 }
 
                 val parsedResults = parseTranslationResult(result, textBlocks)
@@ -226,19 +165,10 @@ class TranslationService private constructor(private val context: Context) {
 
     // Create prompt for LLM translation
     private fun createTranslationPrompt(text: String, sourceLanguage: String, targetLanguage: String): String {
-        Log.d("TranslationService", "Translate from source text: ${text}")
-        Log.d("TranslationService", "Translate from source language: ${sourceLanguage}")
-        Log.d("TranslationService", "Translate to target language: ${targetLanguage}")
-        return """
-        Translate the following text from ${sourceLanguage} to ${targetLanguage}.
-        Maintain the original formatting and layout as much as possible.
-        Keep the BLOCK_XXX: prefixes in the output but don't translate them.
-        
-        Text to translate:
-        $text
-        
-        Translation:
-        """
+        return config.userPrompt
+            .replace("{source}", sourceLanguage)
+            .replace("{target}", targetLanguage)
+            .replace("{text}", text)
     }
 
 
@@ -308,10 +238,11 @@ class TranslationService private constructor(private val context: Context) {
     // Cache key generation
     private fun generateCacheKey(
         textBlocks: List<OCRProcessor.TextBlock>,
+        sourceLanguage: String,
         targetLanguage: String
     ): String {
         val text = textBlocks.joinToString("|") { it.text }
-        return "$text:$targetLanguage".hashCode().toString()
+        return "$text:$sourceLanguage:$targetLanguage:${config.modelName}".hashCode().toString()
     }
 
     // Data class for translated blocks
@@ -320,7 +251,8 @@ class TranslationService private constructor(private val context: Context) {
         val translatedText: String,
         val boundingBox: android.graphics.Rect,
         val sourceLanguage: String,
-        val targetLanguage: String
+        val targetLanguage: String,
+        val bgColor: Int = 0   // sampled original background colour (0 = unknown / use configured)
     )
 
     private fun getSecureApiKey(): String {
@@ -329,13 +261,6 @@ class TranslationService private constructor(private val context: Context) {
         return SecureStorage.getEncryptedValue(context, "api_key") ?: ""
     }
 
-    fun updateApiKey(newKey: String) {
-        apiKey = newKey
-    }
-
-    fun updateApiEndpoint(newEndpoint: String) {
-        geminiApiEndpoint = newEndpoint
-    }
 
     // Method to set the source language
     fun setSourceLanguage(language: String) {

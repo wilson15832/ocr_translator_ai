@@ -17,18 +17,38 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "SettingsActivity"
+        const val EXTRA_SECTION = "section"
+        const val SECTION_TRANSLATION = "translation"
+        const val SECTION_OVERLAY = "overlay"
     }
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
-        setContentView(R.layout.activity_settings)
         setContentView(binding.root)
 
         // Set up toolbar with back button
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.setTitle(R.string.settings_title)
+
+        // Show only the requested group (homepage opens one or the other)
+        when (intent.getStringExtra(EXTRA_SECTION)) {
+            SECTION_OVERLAY -> {
+                binding.groupTranslation.visibility = android.view.View.GONE
+                binding.groupOverlay.visibility = android.view.View.VISIBLE
+                supportActionBar?.setTitle(R.string.display_settings)
+            }
+            SECTION_TRANSLATION -> {
+                binding.groupTranslation.visibility = android.view.View.VISIBLE
+                binding.groupOverlay.visibility = android.view.View.GONE
+                supportActionBar?.setTitle(R.string.translation_settings)
+            }
+            else -> {  // no section specified: show everything
+                binding.groupTranslation.visibility = android.view.View.VISIBLE
+                binding.groupOverlay.visibility = android.view.View.VISIBLE
+                supportActionBar?.setTitle(R.string.settings)
+            }
+        }
 
         // Initialize preferences manager
         preferencesManager = PreferencesManager.getInstance(this)
@@ -51,11 +71,16 @@ class SettingsActivity : AppCompatActivity() {
         // LLM API settings
         binding.editApiEndpoint.setText(preferencesManager.llmApiEndpoint)
         binding.editApiKey.setText(preferencesManager.llmApiKey)
+        binding.editSystemPrompt.setText(preferencesManager.systemPrompt)
+        binding.editUserPrompt.setText(preferencesManager.userPrompt)
         binding.spinnerModel.setSelection(getModelPosition(preferencesManager.modelName))
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
 
         // Capture settings
-        binding.sliderCaptureInterval.value = preferencesManager.captureInterval / 1000f // Convert to seconds
+        // Snap to the slider's step grid (0.2 + k*0.1) so a stale off-grid value can't crash the Slider
+        val scanSeconds = (preferencesManager.captureInterval / 1000f).coerceIn(0.2f, 1.5f)
+        val scanSteps = Math.round((scanSeconds - 0.2f) / 0.1f)
+        binding.sliderCaptureInterval.value = (0.2f + scanSteps * 0.1f).coerceIn(0.2f, 1.5f)
         binding.switchAutoCapture.isChecked = preferencesManager.autoCaptureEnabled
 
         // Display settings
@@ -63,6 +88,13 @@ class SettingsActivity : AppCompatActivity() {
         binding.sliderOverlayOpacity.value = preferencesManager.overlayOpacity
         binding.switchHighlightOriginal.isChecked = preferencesManager.highlightOriginalText
         binding.switchAlternativeStyle.isChecked = preferencesManager.useAlternativeStyle
+        binding.switchShowAreaBorder.isChecked = preferencesManager.showAreaBorder
+        binding.spinnerFontColor.setSelection(colorIndex(preferencesManager.translationTextColor))
+        binding.spinnerBgColor.setSelection(colorIndex(preferencesManager.translationBgColor))
+        binding.spinnerFoldFavorite.setSelection(foldIndex(preferencesManager.foldFavorite))
+        binding.switchInPlaceMode.isChecked = preferencesManager.inPlaceMode
+        binding.switchUseAccessibility.isChecked = preferencesManager.useAccessibility
+        binding.spinnerFont.setSelection(fontIndex(preferencesManager.translationFont))
 
         // Cache settings
         binding.sliderMaxCache.value = preferencesManager.maxCacheEntries.toFloat()
@@ -114,6 +146,15 @@ class SettingsActivity : AppCompatActivity() {
         // Reset button
         binding.btnResetSettings.setOnClickListener {
             resetSettings()
+        }
+
+        // Open system accessibility settings so the user can enable the enhanced-OCR service
+        binding.btnEnableAccessibility.setOnClickListener {
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Couldn't open accessibility settings", Toast.LENGTH_SHORT).show()
+            }
         }
 
         // Slider change listeners
@@ -195,39 +236,49 @@ class SettingsActivity : AppCompatActivity() {
         )
 
         binding.spinnerModel.adapter = modelAdapter
+
+        // Overlay colour + fold-favorite spinners
+        val colors = resources.getStringArray(R.array.overlay_colors)
+        binding.spinnerFontColor.adapter =
+            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colors)
+        binding.spinnerBgColor.adapter =
+            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colors)
+
+        val foldOptions = resources.getStringArray(R.array.fold_options)
+        binding.spinnerFoldFavorite.adapter =
+            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, foldOptions)
+
+        val fonts = resources.getStringArray(R.array.font_options)
+        binding.spinnerFont.adapter =
+            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, fonts)
+    }
+
+    private fun fontIndex(value: String): Int {
+        val idx = resources.getStringArray(R.array.font_values).indexOf(value)
+        return if (idx >= 0) idx else 0
+    }
+
+    private fun colorIndex(color: Int): Int {
+        val values = resources.getStringArray(R.array.overlay_color_values)
+        val idx = values.indexOfFirst { android.graphics.Color.parseColor(it) == color }
+        return if (idx >= 0) idx else 0
+    }
+
+    private fun foldIndex(value: String): Int {
+        val idx = resources.getStringArray(R.array.fold_option_values).indexOf(value)
+        return if (idx >= 0) idx else 0
     }
 
     private fun getLanguagePosition(languageCode: String, isTarget: Boolean = false): Int {
-        Log.d(TAG, "getLanguagePosition called. languageCode: $languageCode, isTarget: $isTarget") // 添加日志
         val languageCodes = resources.getStringArray(R.array.language_codes)
-        Log.d(TAG, "languageCodes array: ${languageCodes.joinToString()}") // 添加日志
         val positionInFullList = languageCodes.indexOf(languageCode)
-        Log.d(TAG, "positionInFullList: $positionInFullList") // 添加日志
 
+        if(positionInFullList < 0) return 0
 
-        return if (positionInFullList >= 0) {
-            if (isTarget) {
-                // 如果是目标语言 Spinner，且语言代码不是 "auto" (因为目标 Spinner 移除了 "auto")
-                // 位置需要在完整列表的基础上减 1
-                if (languageCode == "auto") {
-                    Log.d(TAG, "Returning 0 for target 'auto'") // 添加日志
-                    // 如果目标语言被设置为 auto (不应该发生，但作为 fallback)
-                    // 返回目标 Spinner 的第一个位置 (通常是第一个实际语言)
-                    0
-                } else {
-                    val finalPosition = positionInFullList - 1
-                    Log.d(TAG, "Returning adjusted position for target: $finalPosition") // 添加日志
-
-                }
-            } else {
-                // 对于源语言 Spinner，直接使用在完整列表中的位置
-                positionInFullList
-                Log.d(TAG, "Returning position for source: $positionInFullList") // 添加日志
-            }
+        return if (isTarget) {
+            if (languageCode == "auto") 0 else positionInFullList - 1
         } else {
-            // 语言代码未找到，返回各自 Spinner 的第一个位置作为默认
-            Log.d(TAG, "Language code not found, returning 0") // 添加日志
-            0
+            positionInFullList
         }
     }
 
@@ -253,6 +304,10 @@ class SettingsActivity : AppCompatActivity() {
         // LLM API settings
         preferencesManager.llmApiEndpoint = binding.editApiEndpoint.text.toString()
         preferencesManager.llmApiKey = binding.editApiKey.text.toString()
+        preferencesManager.systemPrompt =
+            binding.editSystemPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_SYSTEM_PROMPT }
+        preferencesManager.userPrompt =
+            binding.editUserPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_USER_PROMPT }
         preferencesManager.modelName = modelCodes[binding.spinnerModel.selectedItemPosition]
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
 
@@ -265,6 +320,18 @@ class SettingsActivity : AppCompatActivity() {
         preferencesManager.overlayOpacity = binding.sliderOverlayOpacity.value
         preferencesManager.highlightOriginalText = binding.switchHighlightOriginal.isChecked
         preferencesManager.useAlternativeStyle = binding.switchAlternativeStyle.isChecked
+        preferencesManager.showAreaBorder = binding.switchShowAreaBorder.isChecked
+        val colorValues = resources.getStringArray(R.array.overlay_color_values)
+        preferencesManager.translationTextColor =
+            android.graphics.Color.parseColor(colorValues[binding.spinnerFontColor.selectedItemPosition])
+        preferencesManager.translationBgColor =
+            android.graphics.Color.parseColor(colorValues[binding.spinnerBgColor.selectedItemPosition])
+        val foldValues = resources.getStringArray(R.array.fold_option_values)
+        preferencesManager.foldFavorite = foldValues[binding.spinnerFoldFavorite.selectedItemPosition]
+        preferencesManager.inPlaceMode = binding.switchInPlaceMode.isChecked
+        preferencesManager.useAccessibility = binding.switchUseAccessibility.isChecked
+        preferencesManager.translationFont =
+            resources.getStringArray(R.array.font_values)[binding.spinnerFont.selectedItemPosition]
 
         // Cache settings
         preferencesManager.maxCacheEntries = binding.sliderMaxCache.value.toInt()
@@ -298,6 +365,7 @@ class SettingsActivity : AppCompatActivity() {
         overlayIntent.putExtra("opacity", preferencesManager.overlayOpacity)
         overlayIntent.putExtra("highlight", preferencesManager.highlightOriginalText)
         overlayIntent.putExtra("alternativeStyle", preferencesManager.useAlternativeStyle)
+        overlayIntent.putExtra("showAreaBorder", preferencesManager.showAreaBorder)
         sendBroadcast(overlayIntent)
 
         // Send broadcast to update capture service settings

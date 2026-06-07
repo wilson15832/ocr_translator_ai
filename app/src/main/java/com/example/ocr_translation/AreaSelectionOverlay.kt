@@ -26,6 +26,9 @@ class AreaSelectionOverlay(context: Context) : View(context) {
     private var currentY = 0f
     private var isDragging = false
 
+    /** Notified when the user starts (true) / finishes (false) dragging a box. */
+    var onDragStateChanged: ((dragging: Boolean) -> Unit)? = null
+
     val selectedRect: RectF
         get() = RectF(
             minOf(startX, currentX),
@@ -42,6 +45,7 @@ class AreaSelectionOverlay(context: Context) : View(context) {
                 currentX = event.x
                 currentY = event.y
                 isDragging = true
+                onDragStateChanged?.invoke(true)
                 invalidate()
                 return true
             }
@@ -55,6 +59,7 @@ class AreaSelectionOverlay(context: Context) : View(context) {
             }
             MotionEvent.ACTION_UP -> {
                 isDragging = false
+                onDragStateChanged?.invoke(false)
                 // Make sure we have minimum dimensions
                 if (selectedRect.width() < 10 || selectedRect.height() < 10) {
                     startX = 0f

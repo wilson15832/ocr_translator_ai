@@ -1,6 +1,5 @@
 package com.example.ocr_translation
 
-import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.app.Service
 import android.os.Build
@@ -15,7 +14,6 @@ import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.view.accessibility.AccessibilityEvent
 import com.example.ocr_translation.TranslationService.TranslatedBlock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,8 +28,8 @@ import androidx.core.app.NotificationCompat
 import android.os.Handler
 import android.os.HandlerThread // <-- Import
 import android.os.Looper     // <-- Import
+import android.os.IBinder
 
-import android.graphics.Matrix
 import android.hardware.SensorManager
 import android.util.DisplayMetrics
 import android.view.OrientationEventListener
@@ -40,11 +38,12 @@ import android.view.WindowManager
 import android.graphics.RectF
 
 import android.graphics.Rect
+import android.graphics.Color
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 
 
-class ScreenCaptureService : AccessibilityService() {
+class ScreenCaptureService : Service() {
 
     private val TAG = "ScreenCaptureService_OnStart" // 使用一个统一的 TAG
 
@@ -60,10 +59,60 @@ class ScreenCaptureService : AccessibilityService() {
     private var handlerThread: HandlerThread? = null // Thread for the handler
 
     private var activeTranslationArea: RectF? = null
+    private lateinit var pipeline: TranslationPipeline
+    @Volatile private var lastResultRects: List<Rect> = emptyList()
+    private var lastFingerprint: IntArray? = null
+    private var stableCount = 0
+    private var pendingRetranslate = false
+    // In-place state machine
+    private var inPlaceScanning = true
+    private var lastScanSig = ""
+    private var scanStableSince = 0L
+    private var steadyEnteredAt = 0L
+    // Cache of the currently-shown in-place result + the OCR text that produced it, so a re-scan
+    // that finds unchanged text can restore the box without re-translating (no flicker, no API call).
+    private var lastShownResults: List<TranslationService.TranslatedBlock> = emptyList()
+    private var shownOcrSig = ""
+    @Volatile private var translationStartSession = 0
 
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 1003 // 通知 ID，不能和 OverlayService 冲突
         private const val CAPTURE_CHANNEL_ID = "screen_capture_channel"
+        private const val STABLE_FRAMES = 2          // consecutive stable scans before translating (merged)
+        private const val STABLE_TEXT_MS = 500L      // in-place: OCR text must hold this long before translating
+        private const val STEADY_CHANGE_RATIO = 0.30 // in-place: frame delta that counts as a real change.
+                                                     // High enough that background animation (games) is
+                                                     // ignored; taps re-scan instantly regardless.
+        private const val STEADY_GRACE_MS = 1000L    // in-place: after showing the box, ignore frame-diff
+                                                     // re-scans this long (only a tap re-scans) so the box's
+                                                     // own pixels / brief animations don't cause flicker
+
+        // Translation mode, shared with the floating controls.
+        // false = manual (default): translate only when requestManualTranslation() is called.
+        // true  = auto: translate every capture cycle.
+        @Volatile var autoMode: Boolean = false
+        @Volatile private var manualRequested: Boolean = false
+
+        fun requestManualTranslation() { manualRequested = true }
+
+        private fun consumeManualRequest(): Boolean {
+            if (!manualRequested) return false
+            manualRequested = false
+            return true
+        }
+
+        // Set by the overlay's touch-watch window whenever the user taps anywhere
+        @Volatile private var userInputPending: Boolean = false
+        @Volatile var sessionId: Int = 0
+        fun onUserInput() {
+            userInputPending = true
+            sessionId++   // invalidate any in-flight translation so its result is dropped
+        }
+        private fun consumeUserInput(): Boolean {
+            if (!userInputPending) return false
+            userInputPending = false
+            return true
+        }
     }
 
     // Screen metrics
@@ -136,11 +185,25 @@ class ScreenCaptureService : AccessibilityService() {
 
         setupMediaProjectionCallback()
 
-        setCaptureInterval(3000L)
+//        setCaptureInterval(3000L)
+        setCaptureInterval(PreferencesManager.getInstance(this).captureInterval)
 
         // Initialize both dependencies
         translationService = TranslationService.getInstance(this)
         translationCache = TranslationCache(applicationContext)
+        pipeline = TranslationPipeline(translationService) { results ->
+            // Drop the result if the user tapped while this translation was running
+            if (translationStartSession == sessionId) {
+                lastResultRects = results.map { it.boundingBox }
+                if (results.isNotEmpty()) lastShownResults = results   // cache for unchanged re-scans
+                OverlayService.showTranslation(results)
+            } else {
+                Log.d(TAG, "Discarding stale translation — user tapped during it")
+            }
+        }
+        // Start in manual mode so we don't OCR/translate the app's own UI on launch
+        autoMode = false
+        manualRequested = false
 
         // Initialize current rotation
         val display = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
@@ -220,10 +283,10 @@ class ScreenCaptureService : AccessibilityService() {
         val metrics = DisplayMetrics()
         display.getRealMetrics(metrics)
 
-        // Get correct screen dimensions based on rotation
-        val isPortrait = currentRotation == Surface.ROTATION_0 || currentRotation == Surface.ROTATION_180
-        screenWidth = if (isPortrait) metrics.widthPixels else metrics.heightPixels
-        screenHeight = if (isPortrait) metrics.heightPixels else metrics.widthPixels
+        // getRealMetrics() already returns orientation-correct dimensions — use them directly.
+        // (The old rotation-based swap double-corrected and captured a portrait slice in landscape.)
+        screenWidth = metrics.widthPixels
+        screenHeight = metrics.heightPixels
         screenDensity = metrics.densityDpi
 
         Log.d("ScreenCaptureService",
@@ -269,13 +332,6 @@ class ScreenCaptureService : AccessibilityService() {
                 }
             }
         }
-    }
-
-    private fun notifyRotationChanged(rotation: Int) {
-        val intent = Intent("com.example.ocr_translation.ACTION_ROTATION_CHANGED")
-        intent.putExtra("rotation", rotation)
-        sendBroadcast(intent)
-        Log.d("ScreenCaptureService", "Broadcasted rotation change: $rotation")
     }
 
     fun startCapture(resultCode: Int, data: Intent) {
@@ -460,66 +516,6 @@ class ScreenCaptureService : AccessibilityService() {
         }
     }
 
-    private fun cropBitmapToArea(bitmap: Bitmap, area: RectF): Bitmap? {
-        if (bitmap.isRecycled) {
-            Log.e("ScreenCaptureService", "Cannot crop recycled bitmap")
-            return null
-        }
-
-        val screenRect = RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
-
-        // Ensure area is within screen boundaries
-        val validArea = RectF().apply {
-            left = area.left.coerceIn(screenRect.left, screenRect.right)
-            top = area.top.coerceIn(screenRect.top, screenRect.bottom)
-            right = area.right.coerceIn(screenRect.left, screenRect.right)
-            bottom = area.bottom.coerceIn(screenRect.top, screenRect.bottom)
-        }
-
-        // Additional validation
-        if (validArea.right <= validArea.left || validArea.bottom <= validArea.top) {
-            Log.e("ScreenCaptureService", "Invalid crop area: $validArea")
-            return null
-        }
-
-        // Check if the area has valid dimensions
-        return if (validArea.width() > 10 && validArea.height() > 10) {
-            try {
-                // Convert to integer coordinates for cropping
-                val cropRect = Rect(
-                    validArea.left.toInt(),
-                    validArea.top.toInt(),
-                    validArea.right.toInt(),
-                    validArea.bottom.toInt()
-                )
-
-                // Final validation of the Rect
-                if (cropRect.left < 0 || cropRect.top < 0 ||
-                    cropRect.right > bitmap.width || cropRect.bottom > bitmap.height ||
-                    cropRect.width() <= 0 || cropRect.height() <= 0) {
-
-                    Log.e("ScreenCaptureService", "Crop rectangle out of bounds: $cropRect, bitmap: ${bitmap.width}x${bitmap.height}")
-                    return null
-                }
-
-                Log.d("ScreenCaptureService", "Cropping bitmap to: $cropRect")
-                Bitmap.createBitmap(
-                    bitmap,
-                    cropRect.left,
-                    cropRect.top,
-                    cropRect.width(),
-                    cropRect.height()
-                )
-            } catch (e: Exception) {
-                Log.e("ScreenCaptureService", "Error cropping bitmap: ${e.message}", e)
-                null
-            }
-        } else {
-            Log.d("ScreenCaptureService", "Area too small to crop, returning null")
-            null
-        }
-    }
-
     private fun createForegroundNotification(): Notification {
         // 创建一个点击通知时打开应用主界面的 Intent
         val notificationIntent = Intent(this, MainActivity::class.java)
@@ -545,157 +541,250 @@ class ScreenCaptureService : AccessibilityService() {
         serviceScope.launch {
             Log.d("ScreenCaptureService", "Periodic capture loop coroutine started.") // <-- 日志7
             while (isRunning) {
-                Log.d("ScreenCaptureService", "Top of capture loop iteration.") // <-- 日志8
                 try {
-                    captureScreen()?.let { bitmap ->
-                        processScreenCapture(bitmap)
+                    val prefs = PreferencesManager.getInstance(this@ScreenCaptureService)
+                    val manual = consumeManualRequest()
+                    val inPlace = prefs.inPlaceMode
+                    val useA11y = prefs.useAccessibility && AccessibilityTextService.isConnected()
+                    when {
+                        manual && useA11y -> accessibilityTranslate(force = true)
+                        manual -> {
+                            performTranslation(force = true)
+                            enterSteady()
+                        }
+                        useA11y && autoMode -> accessibilityTranslate(force = false)
+                        inPlace && autoMode -> inPlaceAutoStep()
+                        autoMode -> mergedAutoStep()
                     }
                 } catch (e: Exception) {
                     Log.e("ScreenCaptureService", "Capture cycle failed", e)
-                    // Consider adding a short delay before retrying on error
                     kotlinx.coroutines.delay(1000)
                 }
-                kotlinx.coroutines.delay(captureInterval)
+                kotlinx.coroutines.delay(if (autoMode) captureInterval else 150L)
             }
         }
         Log.d("ScreenCaptureService", "Periodic capture loop exited.") // <-- 日志12
     }
 
-    private suspend fun processScreenCapture(bitmap: Bitmap) {
-        Log.d("ScreenCaptureService", "processScreenCapture() called for bitmap: $bitmap")
+    // One real translation pass: hide our overlay, grab a clean frame, restore, then OCR/translate.
+    private suspend fun performTranslation(force: Boolean) {
+        OverlayService.hideForCapture()
+        kotlinx.coroutines.delay(120)
+        val frame = captureScreen()
+        OverlayService.showAfterCapture()
+        frame?.let { processScreenCapture(it, force) }
+        // Re-baseline against the screen now showing our box, so we detect the next real change
+        lastFingerprint = null
+    }
 
-        // Create a local reference to avoid race conditions or nullability issues
-        val localBitmap = bitmap
-        var croppedBitmap: Bitmap? = null
+    // Tiny downscaled snapshot used to detect on-screen change without hiding the overlay
+    private fun fingerprint(bmp: Bitmap): IntArray {
+        return try {
+            val small = Bitmap.createScaledBitmap(bmp, 32, 18, false)
+            val px = IntArray(32 * 18)
+            small.getPixels(px, 0, 32, 0, 0, 32, 18)
+            small.recycle()
+            px
+        } catch (e: Exception) {
+            IntArray(0)
+        }
+    }
 
-        try {
-            val preferencesManager = PreferencesManager.getInstance(this)
-            val sourceLanguage = preferencesManager.sourceLanguage
-            val targetLanguage = preferencesManager.targetLanguage
-            OCRProcessor.setLanguage(sourceLanguage)
+    private fun fingerprintChanged(fp: IntArray): Boolean {
+        val last = lastFingerprint
+        lastFingerprint = fp
+        if (last == null || last.size != fp.size || fp.isEmpty()) return true
+        var diff = 0
+        for (i in fp.indices) {
+            val c = fp[i]; val l = last[i]
+            val d = kotlin.math.abs(Color.red(c) - Color.red(l)) +
+                    kotlin.math.abs(Color.green(c) - Color.green(l)) +
+                    kotlin.math.abs(Color.blue(c) - Color.blue(l))
+            if (d > 60) diff++
+        }
+        return diff > fp.size * 0.02   // >2% of cells changed
+    }
 
-            Log.d("ScreenCaptureService", "Attempting to crop bitmap to area: $activeTranslationArea")
-            // Apply the custom area if one is active - safely with null checks
-            if (activeTranslationArea != null) {
-                try {
-                    Log.d("ScreenCaptureService", "Attempting to crop bitmap to area: $activeTranslationArea")
-                    croppedBitmap = cropBitmapToArea(localBitmap, activeTranslationArea!!)
-
-                    // If cropping failed, fall back to the original bitmap
-                    if (croppedBitmap == null) {
-                        Log.w("ScreenCaptureService", "Cropping failed, using original bitmap")
-                        croppedBitmap = localBitmap
-                    }
-                } catch (e: Exception) {
-                    Log.e("ScreenCaptureService", "Error cropping bitmap", e)
-                    // On error, fall back to original bitmap
-                    croppedBitmap = localBitmap
-                }
-            } else {
-                // No active area, use original bitmap
-                croppedBitmap = localBitmap
+    // Merged mode: translate when the screen settles after a change
+    private suspend fun mergedAutoStep() {
+        val raw = captureScreen() ?: return
+        val changed = fingerprintChanged(fingerprint(raw))
+        raw.recycle()
+        if (changed) {
+            stableCount = 0
+            pendingRetranslate = true
+        } else if (pendingRetranslate) {
+            stableCount++
+            if (stableCount >= STABLE_FRAMES) {
+                pendingRetranslate = false
+                performTranslation(force = false)
             }
+        }
+    }
 
-            // Safety check for bitmap
-            if (croppedBitmap == null || croppedBitmap.isRecycled) {
-                Log.e("ScreenCaptureService", "Bitmap is null or recycled before OCR, aborting")
-                return
-            }
-
-            // Use a final reference for the bitmap in the callback
-            val finalBitmap = croppedBitmap
-            val originalBitmap = localBitmap
-
-            Log.d("ScreenCaptureService", "Calling OCRProcessor.processImage...")
-            OCRProcessor.processImage(finalBitmap) { extractedText ->
-                try {
-                    Log.d("ScreenCaptureService", "OCR callback received with text: ${extractedText?.size ?: 0} items")
-
-                    // Only process if we have text and bitmaps are still valid
-                    if (extractedText?.isNotEmpty() == true && !finalBitmap.isRecycled) {
-                        serviceScope.launch {
-                            try {
-                                Log.d("ScreenCaptureService", "Starting translation for ${extractedText.size} items")
-                                val translatedResultList = translationService.translateText(
-                                    extractedText,
-                                    sourceLanguage,
-                                    targetLanguage
-                                )
-                                Log.d("ScreenCaptureService", "Translation finished. Result count: ${translatedResultList.size}")
-                                OverlayService.showTranslation(translatedResultList)
-                            } catch (e: Exception) {
-                                Log.e("ScreenCaptureService", "Translation task failed", e)
-                                val errorBlock = TranslationService.TranslatedBlock(
-                                    originalText = "Error",
-                                    translatedText = "Translation failed: ${e.message ?: "Unknown error"}",
-                                    boundingBox = android.graphics.Rect(50, 50, 800, 150),
-                                    sourceLanguage ?: "N/A",
-                                    targetLanguage ?: "N/A"
-                                )
-                                OverlayService.showTranslation(listOf(errorBlock))
-                            } finally {
-                                // Recycle bitmaps safely
-                                recycleBitmapSafely(finalBitmap)
-                                if (finalBitmap != originalBitmap) {
-                                    recycleBitmapSafely(originalBitmap)
-                                }
+    // In-place mode: scan (box hidden) until OCR text is stable, show, then stay until a real change
+    private suspend fun inPlaceAutoStep() {
+        val prefs = PreferencesManager.getInstance(this)
+        if (inPlaceScanning) {
+            val frame = captureScreen() ?: return
+            val sig = pipeline.ocrSignature(frame, activeTranslationArea, prefs.sourceLanguage)
+            val now = android.os.SystemClock.elapsedRealtime()
+            when {
+                sig.isEmpty() -> { lastScanSig = ""; scanStableSince = now }
+                textSimilar(sig, lastScanSig) -> {
+                    if (now - scanStableSince >= STABLE_TEXT_MS) {
+                        if (shownOcrSig.isNotEmpty() && lastShownResults.isNotEmpty() &&
+                            textSimilar(sig, shownOcrSig)
+                        ) {
+                            // Same text as the box we last showed (steady was re-armed by background
+                            // animation, not a real change). Restore the cached box — no re-translate.
+                            OverlayService.showTranslation(lastShownResults)
+                            consumeUserInput()
+                            enterSteady()
+                        } else {
+                            captureScreen()?.let { processScreenCapture(it, force = true) }
+                            if (consumeUserInput()) {
+                                // A tap landed during the translation, so its result was dropped to
+                                // avoid covering new text. Stay scanning and re-read the current
+                                // screen instead of going steady with an empty box (strand).
+                                enterScanning()
+                            } else {
+                                shownOcrSig = sig
+                                enterSteady()
                             }
                         }
+                    }
+                }
+                else -> { lastScanSig = sig; scanStableSince = now }
+            }
+        } else {
+            // Steady: the box is shown. A tap re-scans immediately. Otherwise, after a grace window,
+            // a big frame change triggers a *peek* rather than a full clear: hide the box for one
+            // clean frame and OCR it — only if the original text actually changed do we re-scan.
+            // This keeps the box on screen through animation that didn't change the text (no flicker).
+            val frame = captureScreen() ?: return
+            val fp = fingerprint(frame)
+            frame.recycle()
+            val now = android.os.SystemClock.elapsedRealtime()
+            when {
+                consumeUserInput() -> enterScanning()            // a tap always re-scans immediately
+                now - steadyEnteredAt < STEADY_GRACE_MS -> {
+                    lastFingerprint = fp                         // keep baselining (box now rendered)
+                }
+                fingerprintDiff(fp) > STEADY_CHANGE_RATIO -> {
+                    if (textChangedSincePeek(prefs.sourceLanguage)) {
+                        enterScanning()
                     } else {
-                        // No text found
-                        Log.d("ScreenCaptureService", "OCR returned no text, skipping translation")
-                        OverlayService.showTranslation(emptyList())
-
-                        // Recycle bitmaps safely
-                        recycleBitmapSafely(finalBitmap)
-                        if (finalBitmap != originalBitmap) {
-                            recycleBitmapSafely(originalBitmap)
-                        }
+                        // Same text — keep the box. Re-arm the grace window so we don't peek again
+                        // immediately, and re-baseline against the current frame.
+                        steadyEnteredAt = android.os.SystemClock.elapsedRealtime()
+                        lastFingerprint = null
                     }
-                } catch (e: Exception) {
-                    Log.e("ScreenCaptureService", "Error in OCR callback", e)
-
-                    // Recycle bitmaps on error
-                    recycleBitmapSafely(finalBitmap)
-                    if (finalBitmap != originalBitmap) {
-                        recycleBitmapSafely(originalBitmap)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("ScreenCaptureService", "Error in processScreenCapture", e)
-
-            // Recycle original bitmap if we failed before OCR
-            if (!localBitmap.isRecycled) {
-                try {
-                    localBitmap.recycle()
-                } catch (e: Exception) {
-                    Log.e("ScreenCaptureService", "Error recycling bitmap", e)
-                }
-            }
-
-            // Recycle cropped bitmap if it exists and is different
-            if (croppedBitmap != null && croppedBitmap != localBitmap && !croppedBitmap.isRecycled) {
-                try {
-                    croppedBitmap.recycle()
-                } catch (e: Exception) {
-                    Log.e("ScreenCaptureService", "Error recycling cropped bitmap", e)
                 }
             }
         }
     }
 
-    // Helper method to safely recycle bitmaps
-    private fun recycleBitmapSafely(bitmap: Bitmap?) {
-        if (bitmap != null && !bitmap.isRecycled) {
-            try {
-                bitmap.recycle()
-            } catch (e: Exception) {
-                Log.e("ScreenCaptureService", "Error recycling bitmap", e)
-            }
-        }
+    // Briefly hide the box, grab a clean frame and OCR the area. Returns true if the original text
+    // differs from what the shown box was built from (or if it couldn't be read — re-scan to be safe).
+    private suspend fun textChangedSincePeek(sourceLanguage: String): Boolean {
+        if (shownOcrSig.isEmpty()) return true
+        OverlayService.hideForCapture()
+        kotlinx.coroutines.delay(120)
+        val clean = captureScreen()
+        OverlayService.showAfterCapture()
+        val newSig = if (clean != null)
+            pipeline.ocrSignature(clean, activeTranslationArea, sourceLanguage) else ""
+        if (newSig.isEmpty()) return true
+        return !textSimilar(newSig, shownOcrSig)
     }
 
+    // Hide the box and start a fresh scan of the original text.
+    private fun enterScanning() {
+        inPlaceScanning = true
+        lastScanSig = ""
+        scanStableSince = android.os.SystemClock.elapsedRealtime()
+        OverlayService.showTranslation(emptyList())   // clear box, reveal original to re-read
+    }
+
+    // Box has just been shown; hold here until a tap or (after the grace window) a real change.
+    private fun enterSteady() {
+        inPlaceScanning = false
+        steadyEnteredAt = android.os.SystemClock.elapsedRealtime()
+        lastFingerprint = null   // re-baseline against the screen now showing our box
+    }
+
+    private fun fingerprintDiff(fp: IntArray): Double {
+        val last = lastFingerprint
+        lastFingerprint = fp
+        if (last == null || last.size != fp.size || fp.isEmpty()) return 0.0
+        var diff = 0
+        for (i in fp.indices) {
+            val c = fp[i]; val l = last[i]
+            val d = kotlin.math.abs(Color.red(c) - Color.red(l)) +
+                    kotlin.math.abs(Color.green(c) - Color.green(l)) +
+                    kotlin.math.abs(Color.blue(c) - Color.blue(l))
+            if (d > 60) diff++
+        }
+        return diff.toDouble() / fp.size
+    }
+
+    private fun textSimilar(a: String, b: String): Boolean {
+        if (a == b) return true
+        val maxLen = maxOf(a.length, b.length)
+        if (maxLen == 0) return true
+        return 1.0 - levenshtein(a, b).toDouble() / maxLen >= 0.95
+    }
+
+    private fun levenshtein(a: String, b: String): Int {
+        val dp = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            var prev = dp[0]; dp[0] = i
+            for (j in 1..b.length) {
+                val tmp = dp[j]
+                dp[j] = if (a[i - 1] == b[j - 1]) prev else 1 + minOf(prev, dp[j], dp[j - 1])
+                prev = tmp
+            }
+        }
+        return dp[b.length]
+    }
+
+    // Enhanced-OCR path: read text from the accessibility tree (exact for native apps), translate it.
+    // Falls back to nothing when the foreground app exposes no text nodes (e.g. canvas/GL games).
+    private suspend fun accessibilityTranslate(force: Boolean) {
+        translationStartSession = sessionId
+        val prefs = PreferencesManager.getInstance(this)
+        var nodes = AccessibilityTextService.getScreenText()
+        // Honour an active crop area: keep only nodes overlapping it.
+        val area = activeTranslationArea
+        if (area != null) {
+            nodes = nodes.filter {
+                val b = it.boundingBox
+                area.intersects(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat())
+            }
+        }
+        // Only need a frame for background sampling when drawing in-place.
+        val sampleFrame = if (prefs.inPlaceMode) captureScreen() else null
+        pipeline.processBlocks(
+            blocks = nodes,
+            sourceLanguage = prefs.sourceLanguage,
+            targetLanguage = prefs.targetLanguage,
+            force = force,
+            sampleFrame = sampleFrame
+        )
+    }
+
+    private suspend fun processScreenCapture(bitmap: Bitmap, force: Boolean) {
+        translationStartSession = sessionId   // remember which session this translation belongs to
+        val prefs = PreferencesManager.getInstance(this)
+        pipeline.process(
+            frame = bitmap,
+            area = activeTranslationArea,
+            sourceLanguage = prefs.sourceLanguage,
+            targetLanguage = prefs.targetLanguage,
+            force = force
+        )
+    }
 
     private fun captureScreen(): Bitmap? {
         var bitmap: Bitmap? = null
@@ -808,20 +897,7 @@ class ScreenCaptureService : AccessibilityService() {
         captureInterval = interval
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Process accessibility events if needed
-    }
-
-    override fun onInterrupt() {
-        // Handle interruption
-    }
-
-    // Add utility method to rotate bitmap
-    private fun rotateBitmap(source: Bitmap, angle: Float): Bitmap {
-        val matrix = Matrix()
-        matrix.postRotate(angle)
-        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
     private fun broadcastAreaStatus() {
         val intent = Intent("com.example.ocr_translation.ACTION_AREA_STATUS_UPDATE")

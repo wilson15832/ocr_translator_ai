@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# IDE
+/.idea/
+
+# Dev artifacts
+*.logcat
+*.apk
+/dbg/
+/fonts/

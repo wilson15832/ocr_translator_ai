@@ -26,7 +26,6 @@ import android.view.View
 import android.widget.AdapterView
 import com.example.ocr_translation.TranslationService // Adjust this import if needed
 import androidx.fragment.app.Fragment
-import com.example.ocr_translation.AreaManagementFragment
 import com.google.android.material.tabs.TabLayout
 import android.widget.Button
 
@@ -42,23 +41,26 @@ class MainActivity : AppCompatActivity() {
     private val PERMISSION_CODE = 100
     private val PROJECTION_PERMISSION_CODE = 101
 
-    private var areaManagementFragment: AreaManagementFragment? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         setupLanguageSpinners()
-        setupAreaManagement() // Add this line
 
         binding.btnStartTranslation.setOnClickListener {
             Log.d("MainActivity", "btnStartTranslation clicked!") // <-- Add Log
             checkAndRequestPermissions()
         }
 
-        binding.btnSettings.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+        binding.cardTranslationSettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java)
+                .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_TRANSLATION))
+        }
+
+        binding.cardOverlaySettings.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java)
+                .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_OVERLAY))
         }
 
         binding.spinnerSourceLanguage.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -75,61 +77,6 @@ class MainActivity : AppCompatActivity() {
             updateTranslationUI(active)
         }
     }
-
-    /*private fun setupAreaManagement() {
-        Log.d("MainActivity", "Setting up area management")
-
-        // Find the button by ID
-        val btnAreaManagement = findViewById<Button>(R.id.btnAreaManagement)
-        if (btnAreaManagement == null) {
-            Log.e("MainActivity", "btnAreaManagement not found in layout! Check your XML.")
-            return
-        }
-
-        btnAreaManagement.setOnClickListener {
-            Log.d("MainActivity", "Translation Areas button clicked")
-            showAreaManagementFragment()
-        }
-    }*/
-
-    private fun setupAreaManagement() {
-        val btnAreaManagement = findViewById<Button>(R.id.btnAreaManagement)
-        btnAreaManagement?.setOnClickListener {
-            val intent = Intent(this, AreaManagementActivity::class.java)
-            startActivity(intent)
-        }
-    }
-
-    // Add this method to show the area management fragment
-    private fun showAreaManagementFragment() {
-        Log.d("MainActivity", "Showing area management fragment")
-
-        if (areaManagementFragment == null) {
-            Log.d("MainActivity", "Creating new AreaManagementFragment instance")
-            areaManagementFragment = AreaManagementFragment()
-        }
-
-        val fragmentContainer = findViewById<View>(R.id.fragment_container)
-        if (fragmentContainer == null) {
-            Log.e("MainActivity", "Fragment container view not found! Check your layout XML.")
-            return
-        }
-
-        // Make sure the container is visible before adding the fragment
-        fragmentContainer.visibility = View.VISIBLE
-        Log.d("MainActivity", "Fragment container made visible")
-
-        try {
-            supportFragmentManager.beginTransaction()
-                .replace(R.id.fragment_container, areaManagementFragment!!)
-                .addToBackStack("area_management")
-                .commit()
-            Log.d("MainActivity", "Fragment transaction committed")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error showing fragment", e)
-        }
-    }
-
 
     private fun updateLanguageSettings() {
         val languageCodes = resources.getStringArray(R.array.language_codes)
@@ -351,15 +298,8 @@ class MainActivity : AppCompatActivity() {
         permissionHelper.handleActivityResult(requestCode, resultCode, data)
 
         // Only handle non-PermissionHelper request codes here
-        if (requestCode == PERMISSION_CODE) {
-            if (Settings.canDrawOverlays(this)) {
-                // Overlay permission granted, proceed with accessibility check
-                if (!isAccessibilityServiceEnabled(this)) {
-                    showAccessibilityExplanationDialog()
-                }
-            } else {
-                Toast.makeText(this, "Overlay permission is required", Toast.LENGTH_SHORT).show()
-            }
+        if (requestCode == PERMISSION_CODE && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Overlay permission is required", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -384,13 +324,15 @@ class MainActivity : AppCompatActivity() {
         // Start overlay service
         Log.i("MainActivity", "Starting translation services...") // <-- Add Log
         Log.d("MainActivity", "onActivityResult: resultCode=$resultCode, data=$data")
-        startService(Intent(this, OverlayService::class.java))
+        val overlayIntent = Intent(this, OverlayService::class.java)
 
         // Send screen capture permission to service
         val captureIntent = Intent(this, ScreenCaptureService::class.java)
         captureIntent.putExtra("resultCode", resultCode)
         captureIntent.putExtra("data", data)
-        startService(captureIntent)
+
+        androidx.core.content.ContextCompat.startForegroundService(this, overlayIntent)
+        androidx.core.content.ContextCompat.startForegroundService(this, captureIntent)
 
         // Update ViewModel
         viewModel.setTranslationActive(true)
@@ -406,32 +348,11 @@ class MainActivity : AppCompatActivity() {
         viewModel.setTranslationActive(false)
     }
 
-    private fun isAccessibilityServiceEnabled(context: Context): Boolean { // 函数名改为更精确的 Enabled
-        // 使用 ComponentName 获取规范的服务 ID，更可靠
-        val expectedServiceComponentName = ComponentName(context, ScreenCaptureService::class.java)
-        val expectedServiceName = expectedServiceComponentName.flattenToString()
-        // expectedServiceName 的格式会是 "com.your_package_name/com.your_package_name.ScreenCaptureService"
-
-        Log.d("AccessibilityCheck", "Looking for service: $expectedServiceName")
-
-        val accessibilityManager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager?
-            ?: return false // 如果获取 manager 失败，直接返回 false
-
-        // 获取所有已启用的服务列表
-        val enabledServices = accessibilityManager.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
-
-        enabledServices?.forEach { serviceInfo ->
-            Log.d("AccessibilityCheck", "Found enabled service: ${serviceInfo.id}")
-            // 使用 equals 进行精确比较，忽略大小写通常更安全
-            if (serviceInfo.id.equals(expectedServiceName, ignoreCase = true)) {
-                Log.d("AccessibilityCheck", "Service ($expectedServiceName) IS enabled.")
-                return true // 找到匹配的服务，返回 true
-            }
-        }
-
-        // 遍历完列表都没有找到匹配的服务
-        Log.d("AccessibilityCheck", "Service ($expectedServiceName) is NOT enabled.")
-        return false
+    private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        val expected = ComponentName(context, ScreenCaptureService::class.java)
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager? ?: return false
+        return am.getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            ?.any { ComponentName.unflattenFromString(it.id) == expected } ?: false
     }
 
     override fun onResume() {
@@ -456,17 +377,5 @@ class MainActivity : AppCompatActivity() {
             .any { it.service.className == serviceClass.name }
     }
 
-    @Override
-    override fun onBackPressed() {
-        if (supportFragmentManager.backStackEntryCount > 0) {
-            supportFragmentManager.popBackStack()
-            if (supportFragmentManager.backStackEntryCount == 0) {
-                // Hide the fragment container when no fragments are displayed
-                findViewById<View>(R.id.fragment_container).visibility = View.GONE
-            }
-        } else {
-            super.onBackPressed()
-        }
-    }
 }
 

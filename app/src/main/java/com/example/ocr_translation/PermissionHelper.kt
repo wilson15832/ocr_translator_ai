@@ -102,10 +102,9 @@ class PermissionHelper(private val activity: FragmentActivity) {
 
     fun areAllPermissionsGranted(): Boolean {
         val overlay = isOverlayPermissionGranted()
-        val accessibility = isAccessibilityPermissionEnabled() // Uses updated check
         val notification = isNotificationPermissionGranted()
-        Log.d("PermissionHelper", "areAllPermissionsGranted: Overlay=$overlay, Accessibility=$accessibility, Notification=$notification")
-        return overlay && accessibility && notification
+        Log.d("PermissionHelper", "areAllPermissionsGranted: Overlay=$overlay, Notification=$notification")
+        return overlay && notification
     }
 
     fun isOverlayPermissionGranted(): Boolean {
@@ -118,39 +117,28 @@ class PermissionHelper(private val activity: FragmentActivity) {
      */
     fun isAccessibilityPermissionEnabled(serviceClass: Class<*> = ScreenCaptureService::class.java): Boolean {
         // Use ComponentName for reliable service ID generation
-        val expectedComponentName = ComponentName(activity, serviceClass)
+        val expected = ComponentName(activity, serviceClass)
         // Format: com.example.ocr_translation/com.example.ocr_translation.ScreenCaptureService
-        val expectedServiceName = expectedComponentName.flattenToString()
-
-        Log.d("PermissionHelper", "Checking for accessibility service: $expectedServiceName")
-
         val enabledServicesSetting = Settings.Secure.getString(
             activity.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         )
 
-        Log.d("PermissionHelper", "Current accessibility settings raw: '$enabledServicesSetting'")
+        Log.d("PermissionHelper", "Looking for ${expected.flattenToString()} in: '$enabledServicesSetting'")
 
-        if (enabledServicesSetting == null || TextUtils.isEmpty(enabledServicesSetting)) {
-            Log.d("PermissionHelper", "Accessibility setting string is null or empty.")
-            return false
-        }
+        if (enabledServicesSetting.isNullOrEmpty()) return false
 
         // Use TextUtils.SimpleStringSplitter for safe parsing of colon-separated list
-        val colonSplitter = TextUtils.SimpleStringSplitter(':')
-        colonSplitter.setString(enabledServicesSetting)
+        val splitter = TextUtils.SimpleStringSplitter(':')
+        splitter.setString(enabledServicesSetting)
 
-        while (colonSplitter.hasNext()) {
-            val enabledService = colonSplitter.next()
-            Log.d("PermissionHelper", " Checking against enabled service entry: '$enabledService'")
-            // Exact match comparison (ignore case for robustness)
-            if (enabledService.equals(expectedServiceName, ignoreCase = true)) {
-                Log.d("PermissionHelper", "SERVICE MATCH FOUND!")
+        for (entry in splitter) {
+            if (ComponentName.unflattenFromString(entry) == expected) {
+                Log.d("PermissionHelper", "SERVICE MATCH FOUND! $entry")
                 return true
             }
         }
-
-        Log.d("PermissionHelper", "Service match NOT found in enabled list.")
+        Log.d("PermissionHelper", "Service match NOT found.")
         return false
     }
 
@@ -279,11 +267,6 @@ class PermissionHelper(private val activity: FragmentActivity) {
         if (!isOverlayPermissionGranted()) {
             Log.d("PermissionHelper", "Need Overlay permission.")
             permissionsToRequest.add(PermissionType.OVERLAY)
-        }
-
-        if (!isAccessibilityPermissionEnabled()) { // Uses updated check
-            Log.d("PermissionHelper", "Need Accessibility permission.")
-            permissionsToRequest.add(PermissionType.ACCESSIBILITY)
         }
 
         if (!isNotificationPermissionGranted()) {

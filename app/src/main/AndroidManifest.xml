@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.example.ocr_translation">
 
     <!-- Required permissions -->
@@ -31,17 +32,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".AreaManagementActivity"
-            android:label="Translation Areas"
-            android:exported="false" />
-
-        <activity
-            android:name=".AreaSelectionActivity"
-            android:label="Select Translation Area"
-            android:theme="@style/Theme.AppCompat.NoActionBar"
-            android:exported="false" />
-
         <!-- Settings Activity -->
         <activity
             android:name=".SettingsActivity"
@@ -49,12 +39,25 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
-        <!-- Screen Capture Service with Accessibility -->
+        <!-- Screen Capture foreground service (MediaProjection) -->
         <service
             android:name=".ScreenCaptureService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Overlay Service for displaying translations -->
+        <service
+            android:name=".OverlayService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Optional accessibility-based text source (enhanced OCR for native apps) -->
+        <service
+            android:name=".AccessibilityTextService"
+            android:enabled="true"
+            android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -63,13 +66,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
-
-        <!-- Overlay Service for displaying translations -->
-        <service
-            android:name=".OverlayService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
 
         <!-- Provider for FileProvider used for sharing screenshots -->
         <provider
@@ -81,6 +77,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Suppress ML Kit / datatransport usage-telemetry uploads (firebaselogging.googleapis.com).
+             On-device text recognition does not need these; removing them stops the failed upload
+             retries (the "Couldn't encode request, returning with 400" timeouts) on this network. -->
+        <service
+            android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery"
+            tools:node="remove" />
+        <service
+            android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.JobInfoSchedulerService"
+            tools:node="remove" />
+        <receiver
+            android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.AlarmManagerSchedulerBroadcastReceiver"
+            tools:node="remove" />
 
     </application>
 

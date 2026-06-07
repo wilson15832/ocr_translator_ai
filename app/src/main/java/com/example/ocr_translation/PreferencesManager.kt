@@ -17,6 +17,13 @@ class PreferencesManager private constructor(context: Context) {
     // Singleton pattern implementation
     companion object {
         private const val PREFS_NAME = "screen_translator_prefs"
+        const val DEFAULT_SYSTEM_PROMPT =
+            "You are a professional translator. Translate naturally and accurately, preserving tone and formatting."
+        const val DEFAULT_USER_PROMPT =
+            "Translate the following text from {source} to {target}.\n" +
+            "Maintain the original formatting and layout as much as possible.\n" +
+            "Keep the BLOCK_XXX: prefixes in the output but don't translate them.\n\n" +
+            "Text to translate:\n{text}\n\nTranslation:"
         private const val KEY_TRANSLATION_ACTIVE = "translation_active"
         private const val KEY_PROJECTION_RESULT_CODE = "projection_result_code"
         private const val KEY_SOURCE_LANGUAGE = "source_language"
@@ -171,8 +178,9 @@ class PreferencesManager private constructor(context: Context) {
             prefs.edit { putString(KEY_TARGET_LANGUAGE, value) }
         }
 
+    private val defaultLlmEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     var llmApiEndpoint: String
-        get() = prefs.getString(KEY_LLM_API_ENDPOINT, "https://api.openai.com/v1/chat/completions") ?: "https://api.openai.com/v1/chat/completions"
+        get() = prefs.getString(KEY_LLM_API_ENDPOINT, defaultLlmEndpoint) ?: defaultLlmEndpoint
         set(value) = prefs.edit { putString(KEY_LLM_API_ENDPOINT, value) }
 
     var llmApiKey: String
@@ -210,6 +218,49 @@ class PreferencesManager private constructor(context: Context) {
     var useAlternativeStyle: Boolean
         get() = prefs.getBoolean(KEY_USE_ALTERNATIVE_STYLE, false)
         set(value) = prefs.edit { putBoolean(KEY_USE_ALTERNATIVE_STYLE, value) }
+
+    var showAreaBorder: Boolean
+        get() = prefs.getBoolean("show_area_border", true)
+        set(value) = prefs.edit { putBoolean("show_area_border", value) }
+
+    // Which floating-bar button stays visible when the bar is folded ("manual" | "auto")
+    var foldFavorite: String
+        get() = prefs.getString("fold_favorite", "manual") ?: "manual"
+        set(value) = prefs.edit { putString("fold_favorite", value) }
+
+    // Translation result display
+    var translationTextColor: Int
+        get() = prefs.getInt("translation_text_color", 0xFFFFFFFF.toInt())
+        set(value) = prefs.edit { putInt("translation_text_color", value) }
+
+    var translationBgColor: Int
+        get() = prefs.getInt("translation_bg_color", 0xFF000000.toInt())
+        set(value) = prefs.edit { putInt("translation_bg_color", value) }
+
+    // In-place mode: draw the translation over each original text region instead of one block
+    var inPlaceMode: Boolean
+        get() = prefs.getBoolean("in_place_mode", false)
+        set(value) = prefs.edit { putBoolean("in_place_mode", value) }
+
+    // Enhanced OCR: read text from the accessibility node tree instead of screen-capture OCR.
+    // Exact for native apps; has no effect on canvas/GL games (which expose no text nodes).
+    var useAccessibility: Boolean
+        get() = prefs.getBoolean("use_accessibility", false)
+        set(value) = prefs.edit { putBoolean("use_accessibility", value) }
+
+    // Result text font (system family name, e.g. "sans-serif-medium", "casual", "cursive")
+    var translationFont: String
+        get() = prefs.getString("translation_font", "sans-serif") ?: "sans-serif"
+        set(value) = prefs.edit { putString("translation_font", value) }
+
+    // Customizable LLM prompts ({source}, {target}, {text} placeholders in the user prompt)
+    var systemPrompt: String
+        get() = prefs.getString("system_prompt", DEFAULT_SYSTEM_PROMPT) ?: DEFAULT_SYSTEM_PROMPT
+        set(value) = prefs.edit { putString("system_prompt", value) }
+
+    var userPrompt: String
+        get() = prefs.getString("user_prompt", DEFAULT_USER_PROMPT) ?: DEFAULT_USER_PROMPT
+        set(value) = prefs.edit { putString("user_prompt", value) }
 
     var maxCacheEntries: Int
         get() = prefs.getInt(KEY_MAX_CACHE_ENTRIES, 100)

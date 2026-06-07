@@ -26,6 +26,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
@@ -45,7 +46,13 @@ class OverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var controlPanel: View
     private lateinit var translationOverlay: FrameLayout
+    private lateinit var inPlaceOverlay: FrameLayout
+    private var touchWatchView: View? = null
+    private val captureHideHandler = Handler(Looper.getMainLooper())
+    private var savedTransVis = View.VISIBLE
+    private var savedInPlaceVis = View.GONE
     private val translatedViews = mutableMapOf<Int, View>()
+    private var isPaused = false
 
     // Settings
     private var textSizeMultiplier = 1.0f
@@ -58,6 +65,7 @@ class OverlayService : Service() {
     private var screenHeight = 0
     private var activeTranslationArea: RectF? = null
     private var areaIndicatorView: AreaIndicatorView? = null
+    private var areaSelectionView: View? = null
 
     private var initialOverlayX: Int = 0
     private var initialOverlayY: Int = 0
@@ -133,6 +141,13 @@ class OverlayService : Service() {
     private fun updateAreaIndicator(area: RectF) {
         activeTranslationArea = area
 
+        if (!PreferencesManager.getInstance(this).showAreaBorder) {
+            if (areaIndicatorView?.parent != null) {
+                try { windowManager.removeView(areaIndicatorView) } catch (e: Exception) {}
+            }
+            return
+        }
+
         if (areaIndicatorView?.parent == null && windowManager != null) {
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -182,6 +197,12 @@ class OverlayService : Service() {
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
         private const val TAG = "OverlayService"
 
+        // Lets the capture service hide our translated overlays during a screen grab,
+        // so we never OCR our own results back.
+        @Volatile private var instance: OverlayService? = null
+        fun hideForCapture() { instance?.hideOverlaysForCapture() }
+        fun showAfterCapture() { instance?.showOverlaysAfterCapture() }
+
         fun getTranslationData(): LiveData<List<TranslationService.TranslatedBlock>> = translationData
 
         fun showTranslation(translations: List<TranslationService.TranslatedBlock>) {
@@ -202,6 +223,15 @@ class OverlayService : Service() {
                 val alternativeStyle = intent.getBooleanExtra("alternativeStyle", false)
 
                 updateSettings(textSize, opacity, highlight, alternativeStyle)
+
+                val showBorder = intent.getBooleanExtra("showAreaBorder", true)
+                if (!showBorder) {
+                    if (areaIndicatorView?.parent != null) {
+                        try { windowManager.removeView(areaIndicatorView) } catch (e: Exception) {}
+                    }
+                } else {
+                    activeTranslationArea?.let { updateAreaIndicator(it) }
+                }
             }
         }
     }
@@ -211,6 +241,7 @@ class OverlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service onCreate")
+        instance = this
 
         // Initialize screen dimensions
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -246,10 +277,6 @@ class OverlayService : Service() {
         //val display = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
         //currentRotation = display.rotation
 
-        // Register rotation receiver
-        val rotationFilter = IntentFilter("com.example.ocr_translation.ACTION_ROTATION_CHANGED")
-        registerReceiver(rotationReceiver, rotationFilter, Context.RECEIVER_NOT_EXPORTED)
-
         // Register for settings updates
         val filter = IntentFilter("com.example.ocr_translation.ACTION_UPDATE_OVERLAY_SETTINGS")
         registerReceiver(settingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -259,6 +286,8 @@ class OverlayService : Service() {
         // Create separate windows for control panel and translations
         createControlPanelWindow()
         createTranslationOverlay()
+        createInPlaceOverlay()
+        createTouchWatch()
 
         // Set up orientation listener
         setupOrientationListener()
@@ -352,35 +381,174 @@ class OverlayService : Service() {
     }
 
     private fun setupControlPanelButtons() {
-        // Close button
+        // Auto/manual toggle — play icon = manual (default, off), pause icon = auto (on)
+        val btnAutoToggle = controlPanel.findViewById<ImageButton>(R.id.btnAutoToggle)
+        btnAutoToggle.setImageResource(
+            if (ScreenCaptureService.autoMode) R.drawable.ic_pause else R.drawable.ic_start
+        )
+        btnAutoToggle.setOnClickListener {
+            val enabled = !ScreenCaptureService.autoMode
+            ScreenCaptureService.autoMode = enabled
+            btnAutoToggle.setImageResource(if (enabled) R.drawable.ic_pause else R.drawable.ic_start)
+            if (!enabled) {
+                // Stopping auto translation: clear any result still on screen
+                clearInPlaceImmediately()
+                translationOverlay.visibility = View.GONE
+            }
+            Log.d(TAG, "Auto mode: $enabled")
+        }
+
+        // Manual translate — translate whatever is on screen right now, once
+        controlPanel.findViewById<View>(R.id.btnTranslateNow).setOnClickListener {
+            Log.d(TAG, "Manual translate requested")
+            ScreenCaptureService.requestManualTranslation()
+        }
+
+        // Select translation area — draw a box directly over the current screen
+        controlPanel.findViewById<View>(R.id.btnSelectArea).setOnClickListener {
+            Log.d(TAG, "Select area clicked")
+            startAreaSelection()
+        }
+
+        // Close — stop translation entirely (overlay + capture)
         controlPanel.findViewById<View>(R.id.btnClose).setOnClickListener {
-            Log.d(TAG, "Close button clicked")
+            Log.d(TAG, "Close clicked — stopping translation")
+            PreferencesManager.getInstance(this).setTranslationActive(false)
+            stopService(Intent(this, ScreenCaptureService::class.java))
             stopSelf()
         }
 
-        // Settings button
-        controlPanel.findViewById<View>(R.id.btnSettings).setOnClickListener {
-            Log.d(TAG, "Settings button clicked")
-            val intent = Intent(this, SettingsActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
+        // Double-tap the bar to fold / unfold it
+        (controlPanel as? GestureControlPanel)?.onDoubleTap = { toggleControlPanelFold() }
+    }
+
+    private var controlPanelFolded = false
+
+    private fun toggleControlPanelFold() {
+        controlPanelFolded = !controlPanelFolded
+        val auto = controlPanel.findViewById<View>(R.id.btnAutoToggle)
+        val translate = controlPanel.findViewById<View>(R.id.btnTranslateNow)
+        val crop = controlPanel.findViewById<View>(R.id.btnSelectArea)
+        val close = controlPanel.findViewById<View>(R.id.btnClose)
+        if (controlPanelFolded) {
+            // Keep only the user's preferred control visible
+            val favorite = PreferencesManager.getInstance(this).foldFavorite
+            auto.visibility = if (favorite == "auto") View.VISIBLE else View.GONE
+            translate.visibility = if (favorite == "auto") View.GONE else View.VISIBLE
+            crop.visibility = View.GONE
+            close.visibility = View.GONE
+        } else {
+            auto.visibility = View.VISIBLE
+            translate.visibility = View.VISIBLE
+            crop.visibility = View.VISIBLE
+            close.visibility = View.VISIBLE
+        }
+        Log.d(TAG, "Control panel folded=$controlPanelFolded")
+    }
+
+    // ===== IN-OVERLAY AREA SELECTION =====
+
+    private fun startAreaSelection() {
+        if (areaSelectionView != null) return
+
+        val selector = AreaSelectionOverlay(this)
+
+        val hint = TextView(this).apply {
+            text = getString(R.string.select_area_hint)
+            setTextColor(Color.WHITE)
+            textSize = 14f
+        }
+        val cancelBtn = Button(this).apply { text = getString(android.R.string.cancel) }
+        val okBtn = Button(this).apply { text = getString(android.R.string.ok) }
+
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#CC000000"))
+            setPadding(32, 20, 32, 20)
+            addView(hint, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+            addView(cancelBtn)
+            addView(okBtn)
         }
 
-        // Pause button
-        controlPanel.findViewById<View>(R.id.btnPause).setOnClickListener { view ->
-            val isPaused = view.tag as? Boolean ?: false
-            Log.d(TAG, "Pause button clicked, isPaused: $isPaused")
+        val container = FrameLayout(this).apply {
+            addView(
+                selector,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            addView(
+                bar,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply { gravity = Gravity.BOTTOM }
+            )
+        }
 
-            if (isPaused) {
-                translationOverlay.visibility = View.VISIBLE
-                view.tag = false
-                // Update button icon to pause
-            } else {
-                translationOverlay.visibility = View.INVISIBLE
-                view.tag = true
-                // Update button icon to play
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            getOverlayType(),
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+
+        cancelBtn.setOnClickListener { endAreaSelection() }
+        okBtn.setOnClickListener {
+            val rect = selector.selectedRect
+            if (rect.width() > 10 && rect.height() > 10) {
+                sendAreaToCapture(rect)
+            }
+            endAreaSelection()
+        }
+
+        // Hide the whole control bar while dragging so it never blocks the area being drawn;
+        // bring it back when the finger lifts.
+        selector.onDragStateChanged = { dragging ->
+            bar.visibility = if (dragging) View.GONE else View.VISIBLE
+        }
+
+        // Hide our own overlays so they don't get in the way while selecting
+        controlPanel.visibility = View.GONE
+        translationOverlay.visibility = View.INVISIBLE
+
+        try {
+            windowManager.addView(container, params)
+            areaSelectionView = container
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show area selector", e)
+            endAreaSelection()
+        }
+    }
+
+    private fun endAreaSelection() {
+        areaSelectionView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error removing area selector", e)
             }
         }
+        areaSelectionView = null
+        controlPanel.visibility = View.VISIBLE
+        if (!isPaused) translationOverlay.visibility = View.VISIBLE
+    }
+
+    private fun sendAreaToCapture(rect: RectF) {
+        Log.d(TAG, "Setting OCR area: $rect")
+        val intent = Intent(this, ScreenCaptureService::class.java).apply {
+            action = "com.example.ocr_translation.ACTION_SET_TRANSLATION_AREA"
+            putExtra("area_left", rect.left)
+            putExtra("area_top", rect.top)
+            putExtra("area_right", rect.right)
+            putExtra("area_bottom", rect.bottom)
+            putExtra("area_name", "Custom Area")
+        }
+        androidx.core.content.ContextCompat.startForegroundService(this, intent)
     }
 
     private fun setupControlPanelDrag(params: WindowManager.LayoutParams) {
@@ -519,7 +687,137 @@ class OverlayService : Service() {
         setupTranslationOverlayDrag() // Call the new drag setup method
     }
 
+    private fun hideOverlaysForCapture() {
+        captureHideHandler.post {
+            if (::translationOverlay.isInitialized) {
+                savedTransVis = translationOverlay.visibility
+                translationOverlay.visibility = View.INVISIBLE
+            }
+            if (::inPlaceOverlay.isInitialized) {
+                savedInPlaceVis = inPlaceOverlay.visibility
+                inPlaceOverlay.visibility = View.INVISIBLE
+            }
+        }
+    }
+
+    private fun showOverlaysAfterCapture() {
+        captureHideHandler.post {
+            if (::translationOverlay.isInitialized) translationOverlay.visibility = savedTransVis
+            if (::inPlaceOverlay.isInitialized) inPlaceOverlay.visibility = savedInPlaceVis
+        }
+    }
+
+    // Tiny window that gets ACTION_OUTSIDE for any tap elsewhere (without consuming it),
+    // so we can detect when the user advances/changes the screen — even under the box.
+    private fun createTouchWatch() {
+        val watch = View(this)
+        val params = WindowManager.LayoutParams(
+            1, 1,
+            getOverlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0; y = 0
+        }
+        watch.setOnTouchListener { _, event ->
+            Log.d(TAG, "touchWatch action=${event.action}")
+            if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                clearInPlaceImmediately()      // hide stale box at once, before the screen changes
+                ScreenCaptureService.onUserInput()
+            }
+            false // never consume — the tap still reaches the app underneath
+        }
+        try {
+            windowManager.addView(watch, params)
+            touchWatchView = watch
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add touch watch", e)
+        }
+    }
+
+    // Full-screen, non-touchable overlay used for in-place translation (boxes over the original text)
+    private fun createInPlaceOverlay() {
+        inPlaceOverlay = FrameLayout(this)
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            getOverlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        try {
+            windowManager.addView(inPlaceOverlay, params)
+            inPlaceOverlay.visibility = View.GONE
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create in-place overlay", e)
+        }
+    }
+
+    // Draws a frosted box with the translation over each original text region
+    private fun renderInPlace(translations: List<TranslationService.TranslatedBlock>) {
+        inPlaceOverlay.removeAllViews()
+        if (translations.isEmpty()) {
+            inPlaceOverlay.visibility = View.GONE
+            return
+        }
+        val prefs = PreferencesManager.getInstance(this)
+        val loc = IntArray(2)
+        inPlaceOverlay.getLocationOnScreen(loc)
+        Log.d(TAG, "inPlaceOverlay loc=(${loc[0]},${loc[1]}) size=${inPlaceOverlay.width}x${inPlaceOverlay.height}")
+        for (t in translations) {
+            val rect = t.boundingBox
+            val tv = TextView(this).apply {
+                text = t.translatedText
+                setTextColor(prefs.translationTextColor)
+                typeface = resultTypeface()
+                textSize = 14f * textSizeMultiplier
+                setPadding(12, 6, 12, 6)
+                background = if (t.bgColor != 0) {
+                    // Match the original text's background so it looks like a replacement
+                    android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = 8f
+                        setColor(t.bgColor or 0xFF000000.toInt())
+                    }
+                } else {
+                    // Opaque fallback so the box fully covers the original text
+                    android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = 8f
+                        setColor(prefs.translationBgColor or 0xFF000000.toInt())
+                    }
+                }
+                minWidth = rect.width() + 8
+                minHeight = rect.height() + 8
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            Log.d(TAG, "in-place block: rect=$rect overlay=${inPlaceOverlay.width}x${inPlaceOverlay.height}")
+            val lp = FrameLayout.LayoutParams(
+                rect.width() + 8,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                // Subtract the overlay window's own screen offset so boxes land on absolute
+                // screen coords even if the window doesn't start at (0,0).
+                leftMargin = (rect.left - loc[0] - 4).coerceAtLeast(0)
+                topMargin = (rect.top - loc[1] - 4).coerceAtLeast(0)
+            }
+            inPlaceOverlay.addView(tv, lp)
+        }
+        inPlaceOverlay.visibility = View.VISIBLE
+    }
+
     private fun updateOverlays(translations: List<TranslationService.TranslatedBlock>) {
+        if (isPaused) return
+        if (PreferencesManager.getInstance(this).inPlaceMode) {
+            translationOverlay.visibility = View.GONE
+            renderInPlace(translations)
+            return
+        }
+        if (::inPlaceOverlay.isInitialized) inPlaceOverlay.visibility = View.GONE
         val rotation = getCurrentRotation()
         Log.d(TAG, "Updating overlays with ${translations.size} translations, rotation: $rotation")
 
@@ -574,26 +872,17 @@ class OverlayService : Service() {
             // Create a single TextView (or other container like ScrollView  TextView)
             val mergedTextView = TextView(this).apply {
                     text = combinedText
-                    setTextColor(ContextCompat.getColor(context, R.color.translation_text_color))
-                    setBackgroundColor(getBackgroundColorWithOpacity()) // Apply background with opacity
+                    setTextColor(PreferencesManager.getInstance(context).translationTextColor)
+                    typeface = resultTypeface()
                     textSize = 14f * textSizeMultiplier // Apply text size setting
-                    setPadding(16, 12, 16, 12) // Add some padding
-                    // maxWidth = (screenWidth * 0.8).toInt() // Optional: limit width
-
-                    // Styling (reusing your existing styling logic)
-                    applyTextViewStyling(this)
+                    setPadding(20, 14, 20, 14)
+                    background = buildResultBackground()
+                    elevation = 6f
 
                     // Make it respond to long clicks (if needed for combined text)
-                    isClickable = false // Normal clicks don't select text for dragging
-                    isLongClickable = true // Long clicks can still be used for context menu
-
-                    setOnLongClickListener {
-                            // TODO: Implement context menu for combined text if needed
-                            // You might pass the combined text or the list of original blocks
-                            // showContextMenuForCombinedText(combinedText, it)
-                            Log.d(TAG, "Long clicked combined translation block")
-                            true
-                        }
+                    // Don't consume touches, so the container's drag listener can move the overlay
+                    isClickable = false
+                    isLongClickable = false
                 }
 
             // Add the merged TextView to the translation overlay container
@@ -1013,6 +1302,37 @@ class OverlayService : Service() {
         return (baseColor and 0x00FFFFFF) or (alpha shl 24)
     }
 
+    // Instantly remove the in-place boxes (called on a tap, on the main thread)
+    private fun clearInPlaceImmediately() {
+        if (::inPlaceOverlay.isInitialized && inPlaceOverlay.childCount > 0) {
+            inPlaceOverlay.removeAllViews()
+            inPlaceOverlay.visibility = View.GONE
+        }
+    }
+
+    private fun resultTypeface(): android.graphics.Typeface {
+        val name = PreferencesManager.getInstance(this).translationFont
+        // Bundled fonts live in res/font/<name>.ttf; otherwise treat the value as a system family
+        val resId = resources.getIdentifier(name, "font", packageName)
+        return if (resId != 0) {
+            androidx.core.content.res.ResourcesCompat.getFont(this, resId)
+                ?: android.graphics.Typeface.DEFAULT
+        } else {
+            android.graphics.Typeface.create(name, android.graphics.Typeface.NORMAL)
+        }
+    }
+
+    // Rounded background for the translation result, using the configured colour + opacity
+    private fun buildResultBackground(): android.graphics.drawable.GradientDrawable {
+        val base = PreferencesManager.getInstance(this).translationBgColor
+        val alpha = (255 * overlayOpacity).toInt()
+        val color = (base and 0x00FFFFFF) or (alpha shl 24)
+        return android.graphics.drawable.GradientDrawable().apply {
+            cornerRadius = 16f
+            setColor(color)
+        }
+    }
+
     fun updateSettings(textSize: Float, opacity: Float, highlight: Boolean, alternativeStyle: Boolean) {
         Log.d(TAG, "Updating settings: textSize=$textSize, opacity=$opacity, highlight=$highlight, alternativeStyle=$alternativeStyle")
         textSizeMultiplier = textSize
@@ -1091,6 +1411,7 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         Log.d(TAG, "Service onDestroy")
+        instance = null
         super.onDestroy()
 
         // Clean up
@@ -1098,7 +1419,10 @@ class OverlayService : Service() {
             unregisterReceiver(settingsReceiver)
             unregisterReceiver(rotationReceiver) // Unregister rotation receiver
             screenOrientationListener.disable()
+            areaSelectionView?.let { windowManager.removeView(it) }
             windowManager.removeView(translationOverlay)
+            if (::inPlaceOverlay.isInitialized) windowManager.removeView(inPlaceOverlay)
+            touchWatchView?.let { windowManager.removeView(it) }
             windowManager.removeView(controlPanel)
         } catch (e: Exception) {
             Log.e(TAG, "Error during cleanup: ${e.message}", e)

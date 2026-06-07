@@ -8,9 +8,10 @@
     <color name="secondary_dark">#E09600</color>
     <color name="secondary_variant">#F6C74E</color>
 
-    <color name="background">#FFFFFF</color>
+    <color name="background">#F4F6FA</color>
     <color name="surface">#FFFFFF</color>
     <color name="error">#B00020</color>
+    <color name="on_surface_muted">#5F6368</color>
 
     <color name="on_primary">#FFFFFF</color>
     <color name="on_secondary">#000000</color>
