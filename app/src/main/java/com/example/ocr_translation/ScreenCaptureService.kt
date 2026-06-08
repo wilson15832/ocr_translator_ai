@@ -29,6 +29,7 @@ import android.os.Handler
 import android.os.HandlerThread // <-- Import
 import android.os.Looper     // <-- Import
 import android.os.IBinder
+import android.content.pm.ServiceInfo
 
 import android.hardware.SensorManager
 import android.util.DisplayMetrics
@@ -58,7 +59,7 @@ class ScreenCaptureService : Service() {
     private var callbackHandler: Handler? = null // Handler for the callback
     private var handlerThread: HandlerThread? = null // Thread for the handler
 
-    private var activeTranslationArea: RectF? = null
+    @Volatile private var activeTranslationArea: RectF? = null
     private lateinit var pipeline: TranslationPipeline
     @Volatile private var lastResultRects: List<Rect> = emptyList()
     private var lastFingerprint: IntArray? = null
@@ -81,11 +82,11 @@ class ScreenCaptureService : Service() {
         private const val STABLE_FRAMES = 2          // consecutive stable scans before translating (merged)
         private const val STABLE_TEXT_MS = 500L      // in-place: OCR text must hold this long before translating
         private const val STEADY_CHANGE_RATIO = 0.30 // in-place: frame delta that counts as a real change.
-                                                     // High enough that background animation (games) is
-                                                     // ignored; taps re-scan instantly regardless.
+        // High enough that background animation (games) is
+        // ignored; taps re-scan instantly regardless.
         private const val STEADY_GRACE_MS = 1000L    // in-place: after showing the box, ignore frame-diff
-                                                     // re-scans this long (only a tap re-scans) so the box's
-                                                     // own pixels / brief animations don't cause flicker
+        // re-scans this long (only a tap re-scans) so the box's
+        // own pixels / brief animations don't cause flicker
 
         // Translation mode, shared with the floating controls.
         // false = manual (default): translate only when requestManualTranslation() is called.
@@ -398,8 +399,19 @@ class ScreenCaptureService : Service() {
         try {
             Log.d(TAG, "Starting foreground service...")
             // startForeground 会根据你的应用状态和 Android 版本，
-            // 将服务提升到前台状态，防止被系统轻易杀死
-            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+            // 将服务提升到前台状态，防止被系统轻易杀死。
+            // 针对 targetSdk 34 (Android 14)：必须在调用 getMediaProjection() 之前，
+            // 以显式的 mediaProjection 类型启动前台服务，否则系统会立即停止投屏会话
+            // （表现为 MediaProjection.Callback.onStop() 被立即回调）。
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    FOREGROUND_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+            } else {
+                startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+            }
             Log.d(TAG, "Foreground service started.")
         } catch (e: Exception) {
             Log.e(TAG, "Error starting foreground service", e)
@@ -799,19 +811,28 @@ class ScreenCaptureService : Service() {
                 val rowStride = planes[0].rowStride
                 val rowPadding = rowStride - pixelStride * screenWidth
 
-                // Create bitmap with exactly the right size based on buffer dimensions
-                val width = screenWidth + rowPadding / pixelStride
-                val height = screenHeight
+                // The buffer width has to account for stride padding; we'll crop it off below
+                // so the returned bitmap matches the actual screen dimensions (otherwise OCR /
+                // crop-area coordinates are off by a few px on the right edge).
+                val bufferWidth = screenWidth + rowPadding / pixelStride
+                val bufferHeight = screenHeight
 
-                Log.d("ScreenCaptureService", "Creating bitmap with dimensions: $width x $height")
+                Log.d("ScreenCaptureService", "Creating bitmap with buffer dimensions: $bufferWidth x $bufferHeight (screen: $screenWidth x $screenHeight)")
 
                 try {
-                    bitmap = Bitmap.createBitmap(
-                        width,
-                        height,
+                    val raw = Bitmap.createBitmap(
+                        bufferWidth,
+                        bufferHeight,
                         Bitmap.Config.ARGB_8888
                     )
-                    bitmap.copyPixelsFromBuffer(buffer)
+                    raw.copyPixelsFromBuffer(buffer)
+
+                    bitmap = if (bufferWidth > screenWidth) {
+                        // Drop the stride padding strip on the right edge.
+                        val cropped = Bitmap.createBitmap(raw, 0, 0, screenWidth, screenHeight)
+                        if (cropped !== raw) raw.recycle()
+                        cropped
+                    } else raw
                 } catch (e: Exception) {
                     Log.e("ScreenCaptureService", "Error creating or copying bitmap: ${e.message}")
                     e.printStackTrace()
@@ -822,8 +843,8 @@ class ScreenCaptureService : Service() {
                             // For safety, ensure we're creating a bitmap with dimensions
                             // that won't exceed the buffer size
                             val bufferSize = buffer.remaining()
-                            val estimatedWidth = Math.min(width, Math.sqrt(bufferSize / 4.0).toInt())
-                            val estimatedHeight = Math.min(height, bufferSize / (estimatedWidth * 4))
+                            val estimatedWidth = Math.min(bufferWidth, Math.sqrt(bufferSize / 4.0).toInt())
+                            val estimatedHeight = Math.min(bufferHeight, bufferSize / (estimatedWidth * 4))
 
                             Log.d("ScreenCaptureService", "Retry with safe dimensions: $estimatedWidth x $estimatedHeight")
 
@@ -947,7 +968,13 @@ class ScreenCaptureService : Service() {
         handlerThread?.quitSafely()
         handlerThread = null
         callbackHandler = null
-        stopForeground(true) // 停止前台服务
+        // stopForeground(boolean) is deprecated since API 33 — use the explicit constant.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(Service.STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         // Unregister the receiver
         try {
             unregisterReceiver(areaReceiver)

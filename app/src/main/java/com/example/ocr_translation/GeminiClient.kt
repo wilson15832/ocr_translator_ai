@@ -39,11 +39,11 @@ class GeminiClient(
         // Gemini's simple request has no system role here, so prepend it to the prompt
         val text = if (systemPrompt.isBlank()) userPrompt else "$systemPrompt\n\n$userPrompt"
         val payload = GeminiRequest(contents = listOf(Content(listOf(Part(text)))))
-        val Body = gson.toJson(payload).toRequestBody("application/json".toMediaTypeOrNull())
+        val body = gson.toJson(payload).toRequestBody("application/json".toMediaTypeOrNull())
 
         val request = Request.Builder()
             .url("$endpoint?key=$apiKey")
-            .post(Body)
+            .post(body)
             .build()
 
         httpClient.newCall(request).execute().use { response ->

@@ -1,22 +1,12 @@
 package com.example.ocr_translation
 
 import android.content.Context
-import android.hardware.usb.UsbEndpoint
 import com.google.gson.Gson
-import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
-import com.example.ocr_translation.SecureStorage
-import android.util.Log
-import androidx.compose.ui.semantics.Role
-import com.example.ocr_translation.LlmClient
-import com.example.ocr_translation.GeminiClient
-import com.example.ocr_translation.OpenAiCompatibleClient
 
 
 class TranslationService private constructor(private val context: Context) {
@@ -33,9 +23,7 @@ class TranslationService private constructor(private val context: Context) {
         }
     }
 
-    // API Endpoints - can be changed in settings
-    private var geminiApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    private var apiKey = "" // To be set from secure storage
+    private var apiKey = "" // populated from SecureStorage via PreferencesManager
 
     // Cache system
     private val translationCache = TranslationCache(context)
@@ -79,9 +67,9 @@ class TranslationService private constructor(private val context: Context) {
         config.systemPrompt = preferencesManager.systemPrompt
         config.userPrompt = preferencesManager.userPrompt
         apiKey = preferencesManager.llmApiKey
-        }
+    }
 
-    private fun createLlmClent(): LlmClient{
+    private fun createLlmClient(): LlmClient {
         val model = config.modelName
         return when {
             model.startsWith("deepseek") ->
@@ -128,25 +116,21 @@ class TranslationService private constructor(private val context: Context) {
                 val result = if (config.useLocalModel) {
                     translateWithLocalModel(prompt)
                 } else {
-                    createLlmClent().translate(config.systemPrompt, prompt)
+                    createLlmClient().translate(config.systemPrompt, prompt)
                 }
 
                 val parsedResults = parseTranslationResult(result, textBlocks)
                 translations.addAll(parsedResults)
 
-                // Explicitly typed variable (optional now, but keep for checking)
-                val listToSave: List<TranslatedBlock> = translations
-
                 // Cache the result
                 translationCache.saveTranslation(
                     cacheKey,
-                    listToSave, // Pass the list
+                    translations.toList(),
                     config.sourceLanguage,
                     config.targetLanguage
                 )
 
-                translations // <--- ADD THIS: Make the list the return value of the try block
-
+                translations
             } catch (e: Exception) {
                 e.printStackTrace()
                 // Return fallback translation
@@ -155,8 +139,8 @@ class TranslationService private constructor(private val context: Context) {
                         originalText = it.text,
                         translatedText = "Translation failed",
                         boundingBox = it.boundingBox,
-                        sourceLanguage = config.sourceLanguage, // <-- Pass language from config
-                        targetLanguage = config.targetLanguage  // <-- Pass language from config
+                        sourceLanguage = config.sourceLanguage,
+                        targetLanguage = config.targetLanguage
                     )
                 }
             }
@@ -226,8 +210,8 @@ class TranslationService private constructor(private val context: Context) {
                     originalText = block.text,
                     translatedText = translation,
                     boundingBox = block.boundingBox,
-                    sourceLanguage = config.sourceLanguage, // <-- Pass language from config
-                    targetLanguage = config.targetLanguage  // <-- Pass language from config
+                    sourceLanguage = config.sourceLanguage,
+                    targetLanguage = config.targetLanguage
                 )
             )
         }
@@ -235,14 +219,23 @@ class TranslationService private constructor(private val context: Context) {
         return translations
     }
 
-    // Cache key generation
+    /**
+     * Cache key generation.
+     * Uses SHA-256 over the concatenated text + language + model triple. The old [String.hashCode]
+     * approach collides at ~50% probability around 2^16 distinct entries, which would surface as
+     * wrong translations being served from cache.
+     */
     private fun generateCacheKey(
         textBlocks: List<OCRProcessor.TextBlock>,
         sourceLanguage: String,
         targetLanguage: String
     ): String {
         val text = textBlocks.joinToString("|") { it.text }
-        return "$text:$sourceLanguage:$targetLanguage:${config.modelName}".hashCode().toString()
+        val seed = "$text|$sourceLanguage|$targetLanguage|${config.modelName}"
+        val digest = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray(Charsets.UTF_8))
+        val sb = StringBuilder(digest.size * 2)
+        for (b in digest) sb.append(String.format("%02x", b))
+        return sb.toString()
     }
 
     // Data class for translated blocks
@@ -254,23 +247,4 @@ class TranslationService private constructor(private val context: Context) {
         val targetLanguage: String,
         val bgColor: Int = 0   // sampled original background colour (0 = unknown / use configured)
     )
-
-    private fun getSecureApiKey(): String {
-        // Using Android Keystore or other secure storage mechanism
-        // This is pseudocode - you'll need to implement proper secure storage
-        return SecureStorage.getEncryptedValue(context, "api_key") ?: ""
-    }
-
-
-    // Method to set the source language
-    fun setSourceLanguage(language: String) {
-        Log.d("PreferencesManager", "Setting source language: $language")
-        config.sourceLanguage = language
-    }
-
-    // Method to set the target language
-    fun setTargetLanguage(language: String) {
-        Log.d("PreferencesManager", "Setting target language: $language")
-        config.targetLanguage = language
-    }
 }

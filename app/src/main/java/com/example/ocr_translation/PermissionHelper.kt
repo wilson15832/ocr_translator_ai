@@ -49,13 +49,8 @@ class PermissionHelper(private val activity: FragmentActivity) {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            // 成功获取权限和数据
+            // Permission granted; pass resultCode + data straight back via callback.
             Log.d("PermissionHelper", "Media projection granted. Passing data back directly via callback.")
-            // 移除保存到 PreferencesManager 的代码:
-            // val preferencesManager = PreferencesManager.getInstance(activity)
-            // preferencesManager.saveMediaProjectionData(result.resultCode, result.data!!)
-
-            // 直接通过回调传递结果 (granted=true, 以及 resultCode 和 data)
             currentCallback?.invoke(PermissionType.MEDIA_PROJECTION, true, result.resultCode, result.data)
         } else {
             // 用户拒绝或取消

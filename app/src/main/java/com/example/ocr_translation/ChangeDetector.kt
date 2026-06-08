@@ -4,22 +4,28 @@ package com.example.ocr_translation
  * Decides whether the on-screen text changed enough to warrant a new translation.
  * Tolerates OCR jitter (status bar, anti-aliasing noise) via a similarity threshold,
  * so a static screen does not trigger repeated API requests.
+ *
+ * Methods may be called from different threads (capture coroutine + accessibility callback),
+ * so [lastSignature] access is synchronized.
  */
 class ChangeDetector(private val threshold: Double = 0.90) {
 
+    private val lock = Any()
     private var lastSignature: String? = null
 
     /** Returns true if [blocks] differ enough from the last accepted text. Updates state when it does. */
     fun hasChanged(blocks: List<OCRProcessor.TextBlock>): Boolean {
         val signature = normalize(blocks)
-        val prev = lastSignature
-        if (prev != null && similarity(signature, prev) >= threshold) return false
-        lastSignature = signature
-        return true
+        synchronized(lock) {
+            val prev = lastSignature
+            if (prev != null && similarity(signature, prev) >= threshold) return false
+            lastSignature = signature
+            return true
+        }
     }
 
     fun reset() {
-        lastSignature = null
+        synchronized(lock) { lastSignature = null }
     }
 
     private fun normalize(blocks: List<OCRProcessor.TextBlock>): String =

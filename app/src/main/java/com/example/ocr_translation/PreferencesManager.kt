@@ -2,17 +2,14 @@ package com.example.ocr_translation
 
 import android.content.SharedPreferences
 import android.content.Context
-import android.content.Intent
 import androidx.core.content.edit
-import android.os.Bundle
-import android.os.Parcel
-import android.util.Base64
-import android.os.Build
 import android.util.Log
-import android.graphics.RectF
 
 
 class PreferencesManager private constructor(context: Context) {
+
+    // applicationContext is required for SecureStorage (the API key lives in EncryptedSharedPreferences)
+    private val appContext: Context = context.applicationContext
 
     // Singleton pattern implementation
     companion object {
@@ -21,15 +18,15 @@ class PreferencesManager private constructor(context: Context) {
             "You are a professional translator. Translate naturally and accurately, preserving tone and formatting."
         const val DEFAULT_USER_PROMPT =
             "Translate the following text from {source} to {target}.\n" +
-            "Maintain the original formatting and layout as much as possible.\n" +
-            "Keep the BLOCK_XXX: prefixes in the output but don't translate them.\n\n" +
-            "Text to translate:\n{text}\n\nTranslation:"
+                    "Maintain the original formatting and layout as much as possible.\n" +
+                    "Keep the BLOCK_XXX: prefixes in the output but don't translate them.\n\n" +
+                    "Text to translate:\n{text}\n\nTranslation:"
         private const val KEY_TRANSLATION_ACTIVE = "translation_active"
-        private const val KEY_PROJECTION_RESULT_CODE = "projection_result_code"
         private const val KEY_SOURCE_LANGUAGE = "source_language"
         private const val KEY_TARGET_LANGUAGE = "target_language"
         private const val KEY_LLM_API_ENDPOINT = "llm_api_endpoint"
-        private const val KEY_LLM_API_KEY = "llm_api_key"
+        private const val KEY_LLM_API_KEY = "llm_api_key"           // legacy plaintext slot (migrated then cleared)
+        private const val KEY_LLM_API_KEY_SECURE = "llm_api_key"    // encrypted store key
         private const val KEY_MODEL_NAME = "model_name"
         private const val KEY_USE_LOCAL_MODEL = "use_local_model"
         private const val KEY_CAPTURE_INTERVAL = "capture_interval"
@@ -41,7 +38,6 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_MAX_CACHE_ENTRIES = "max_cache_entries"
         private const val KEY_CACHE_TTL_HOURS = "cache_ttl_hours"
         private const val KEY_KEEP_HISTORY_DAYS = "keep_history_days"
-        private const val KEY_PROJECTION_DATA_BUNDLE = "projection_data_bundle"
         private const val PREF_ACTIVE_AREA_LEFT = "active_area_left"
         private const val PREF_ACTIVE_AREA_TOP = "active_area_top"
         private const val PREF_ACTIVE_AREA_RIGHT = "active_area_right"
@@ -61,97 +57,38 @@ class PreferencesManager private constructor(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    init {
+        migrateLegacyApiKey()
+    }
 
-    fun saveMediaProjectionData(resultCode: Int, data: Intent) {
-        Log.d("PreferencesManager", "Attempting to save media projection data. ResultCode: $resultCode, Intent: $data")
-        prefs.edit { // Saving resultCode
-            putInt(KEY_PROJECTION_RESULT_CODE, resultCode)
-            Log.d("PreferencesManager", "Saved resultCode: $resultCode")
+    /**
+     * One-shot migration: if a previous build stored the API key in plain SharedPreferences,
+     * move it into EncryptedSharedPreferences and clear the plaintext copy.
+     */
+    private fun migrateLegacyApiKey() {
+        val legacy = prefs.getString(KEY_LLM_API_KEY, null) ?: return
+        if (legacy.isEmpty()) {
+            prefs.edit { remove(KEY_LLM_API_KEY) }
+            return
         }
-
         try {
-            val bundle = Bundle()
-            bundle.putParcelable("intent_data", data)
-            Log.d("PreferencesManager", "Intent put into bundle.")
-            val bundleBytes = getBundleAsBytes(bundle) // Assumes getBundleAsBytes works or logs errors if it fails
-            if (bundleBytes != null) {
-                val bundleStr = Base64.encodeToString(bundleBytes, Base64.DEFAULT)
-                Log.d("PreferencesManager", "Marshalled bundle to Base64 string (length: ${bundleStr.length}).")
-                prefs.edit { // Saving bundle string
-                    putString(KEY_PROJECTION_DATA_BUNDLE, bundleStr)
-                    Log.d("PreferencesManager", "Saved bundle string.")
-                }
-            } else {
-                Log.e("PreferencesManager", "Failed to marshall bundle to bytes!")
+            // Don't clobber an existing encrypted value (defensive — shouldn't happen).
+            if (!SecureStorage.containsKey(appContext, KEY_LLM_API_KEY_SECURE)) {
+                SecureStorage.setEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE, legacy)
             }
+            prefs.edit { remove(KEY_LLM_API_KEY) }
+            Log.i("PreferencesManager", "Migrated legacy plaintext API key into SecureStorage")
         } catch (e: Exception) {
-            // **** Log the exception during save ****
-            Log.e("PreferencesManager", "Error saving media projection data bundle", e)
+            Log.e("PreferencesManager", "API key migration failed; leaving legacy value in place", e)
         }
     }
 
 
-    private fun getBundleAsBytes(bundle: Bundle): ByteArray? {
-        val parcel = Parcel.obtain()
-        try {
-            bundle.writeToParcel(parcel, 0)
-            return parcel.marshall()
-        } finally {
-            parcel.recycle()
-        }
-    }
-
-    private fun getBytesAsBundle(bytes: ByteArray): Bundle? {
-        val parcel = Parcel.obtain()
-        try {
-            parcel.unmarshall(bytes, 0, bytes.size)
-            parcel.setDataPosition(0)
-            return Bundle.CREATOR.createFromParcel(parcel)
-        } finally {
-            parcel.recycle()
-        }
-    }
-
-
-    // Media projection result code
-    val mediaProjectionResultCode: Int
-        get() = prefs.getInt(KEY_PROJECTION_RESULT_CODE, 0)
-
-    val mediaProjectionData: Intent?
-        get() {
-            Log.d("PreferencesManager", "Attempting to retrieve media projection data...")
-            val bundleStr = prefs.getString(KEY_PROJECTION_DATA_BUNDLE, null)
-            if (bundleStr == null) {
-                Log.w("PreferencesManager", "Bundle string not found in prefs.")
-                return null
-            }
-            Log.d("PreferencesManager", "Retrieved bundle string (length: ${bundleStr.length}).")
-            try {
-                val bundleBytes = Base64.decode(bundleStr, Base64.DEFAULT)
-                Log.d("PreferencesManager", "Decoded Base64 string to bytes.")
-                val bundle = getBytesAsBundle(bundleBytes)
-                if (bundle == null) {
-                    Log.e("PreferencesManager", "Failed to unmarshall bytes to bundle!")
-                    return null
-                }
-                Log.d("PreferencesManager", "Unmarshalled bytes to bundle.")
-
-                val intent: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    Log.d("PreferencesManager", "Getting parcelable for TIRAMISU+")
-                    bundle.getParcelable("intent_data", Intent::class.java)
-                } else {
-                    Log.d("PreferencesManager", "Getting parcelable pre-TIRAMISU")
-                    @Suppress("DEPRECATION")
-                    bundle.getParcelable("intent_data")
-                }
-                Log.d("PreferencesManager", "Retrieved intent from bundle: $intent")
-                return intent
-            } catch (e: Exception) {
-                Log.e("PreferencesManager", "Error retrieving media projection data during processing", e)
-                return null // Return null on error
-            }
-        }
-
+    // NOTE: The previous build persisted MediaProjection resultCode + Intent to SharedPreferences
+    // (via Parcel marshalling + Base64) so the service could be relaunched without re-prompting.
+    // That contract was unsound — the projection token doesn't survive process death — and the
+    // current flow passes resultCode/data straight from the activity result to ScreenCaptureService.
+    // The persistence code was removed; if it's ever needed again, prompt the user instead.
 
 
     // --- Define properties matching SettingsActivity usage ---
@@ -179,13 +116,26 @@ class PreferencesManager private constructor(context: Context) {
         }
 
     private val defaultLlmEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    /**
+     * Currently unused at runtime — the active client (OpenAI-compatible vs Gemini) and its
+     * endpoint are picked from [modelName] inside TranslationService.createLlmClient().
+     * Kept because SettingsActivity still exposes the field; remove together with the UI if/when
+     * the architecture goes back to a user-configurable endpoint.
+     */
     var llmApiEndpoint: String
         get() = prefs.getString(KEY_LLM_API_ENDPOINT, defaultLlmEndpoint) ?: defaultLlmEndpoint
         set(value) = prefs.edit { putString(KEY_LLM_API_ENDPOINT, value) }
 
+    /** API key, stored in EncryptedSharedPreferences (see [SecureStorage]). */
     var llmApiKey: String
-        get() = prefs.getString(KEY_LLM_API_KEY, "") ?: ""
-        set(value) = prefs.edit { putString(KEY_LLM_API_KEY, value) } // Consider secure storage for API keys!
+        get() = SecureStorage.getEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE) ?: ""
+        set(value) {
+            if (value.isEmpty()) {
+                SecureStorage.removeEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE)
+            } else {
+                SecureStorage.setEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE, value)
+            }
+        }
 
     var modelName: String
         get() = prefs.getString(KEY_MODEL_NAME, "gpt-4-turbo") ?: "gpt-4-turbo"
@@ -291,8 +241,6 @@ class PreferencesManager private constructor(context: Context) {
         prefs.edit { putBoolean(KEY_TRANSLATION_ACTIVE, active) }
     }
 
-    // ... keep projection methods if needed, remembering the limitations ...
-
     // Add the reset method called by SettingsActivity
     fun resetToDefaults() {
         // Clear only the keys related to settings adjustable in SettingsActivity
@@ -301,7 +249,7 @@ class PreferencesManager private constructor(context: Context) {
             remove(KEY_SOURCE_LANGUAGE)
             remove(KEY_TARGET_LANGUAGE)
             remove(KEY_LLM_API_ENDPOINT)
-            remove(KEY_LLM_API_KEY) // Be careful resetting API keys
+            remove(KEY_LLM_API_KEY) // legacy plaintext slot — defensive
             remove(KEY_MODEL_NAME)
             remove(KEY_USE_LOCAL_MODEL)
             remove(KEY_CAPTURE_INTERVAL)
@@ -315,13 +263,15 @@ class PreferencesManager private constructor(context: Context) {
             remove(KEY_KEEP_HISTORY_DAYS)
             // Decide if you want to reset translation_active etc. too
         }
+        // Also clear the encrypted API key
+        SecureStorage.removeEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE)
         // Applying default values immediately might be better depending on your logic
         // Or rely on the getters providing defaults when the key is missing.
     }
 
     fun areSettingsComplete(): Boolean {
-        // Check if essential settings are configured
-        return llmApiKey.isNotEmpty() && llmApiEndpoint.isNotEmpty()
+        // The endpoint is currently chosen by model name, not user input — only the API key is required.
+        return llmApiKey.isNotEmpty()
     }
 
     fun saveActiveTranslationArea(rectF: android.graphics.RectF) {

@@ -1,35 +1,23 @@
 package com.example.ocr_translation
 
-import com.example.ocr_translation.ui.theme.OCR_TranslationTheme
-
 import android.app.AlertDialog
+import android.app.ActivityManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
-import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
+import android.view.View
+import android.view.accessibility.AccessibilityManager
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import com.example.ocr_translation.ScreenCaptureService
 import com.example.ocr_translation.databinding.ActivityMainBinding
-import com.example.ocr_translation.OverlayService
-import com.example.ocr_translation.MainViewModel
-import android.content.ComponentName
-import android.view.accessibility.AccessibilityManager
-import android.accessibilityservice.AccessibilityServiceInfo
-import android.util.Log
-import android.app.ActivityManager
-import android.view.View
-import android.widget.AdapterView
-import com.example.ocr_translation.TranslationService // Adjust this import if needed
-import androidx.fragment.app.Fragment
-import com.google.android.material.tabs.TabLayout
-import android.widget.Button
-
-
 
 
 class MainActivity : AppCompatActivity() {
@@ -153,14 +141,8 @@ class MainActivity : AppCompatActivity() {
                         "Media Projection permission granted. Received data directly via callback."
                     )
 
-                    // 移除从 PreferencesManager 获取数据的代码:
-                    // val preferencesManager = PreferencesManager.getInstance(this)
-                    // val prefResultCode = preferencesManager.mediaProjectionResultCode
-                    // val prefData = preferencesManager.mediaProjectionData
-
-                    // 直接使用回调传递过来的 resultCode 和 data 启动服务
+                    // Use the resultCode/data delivered by the callback to start the service.
                     startTranslationService(resultCode, data)
-                    // The preference manager should already have the media projection data
 
                 } else if (granted) {
                     // 权限被授予了，但不知何故 resultCode 或 data 是 null (理论上不应发生)
@@ -204,12 +186,7 @@ class MainActivity : AppCompatActivity() {
                                 "Media Projection granted (after sequence). Received data directly."
                             )
 
-                            // 移除从 PreferencesManager 获取数据的代码:
-                            // val preferencesManager = PreferencesManager.getInstance(this)
-                            // val resultCode = preferencesManager.mediaProjectionResultCode
-                            // val data = preferencesManager.mediaProjectionData
-
-                            // 直接使用回调传递过来的 resultCode 和 data 启动服务
+                            // Use the resultCode/data delivered by the callback to start the service.
                             startTranslationService(resultCode, data)
 
                         } else if (granted) {
@@ -378,4 +355,3 @@ class MainActivity : AppCompatActivity() {
     }
 
 }
-

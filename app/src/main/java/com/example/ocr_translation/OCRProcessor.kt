@@ -13,17 +13,24 @@ import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 import android.util.Log
-import androidx.appcompat.app.AppCompatActivity
 import android.view.Surface
 
 
 object OCRProcessor {
-    private var recognizer: TextRecognizer = createRecognizer("ja")
+
+    // ML Kit's TextRecognizer is not safe to close while another coroutine is calling process().
+    // The mutex serializes recognize/setLanguage/cleanup, and we track the current language so we
+    // only rebuild the recognizer when it actually changes.
+    private val recognizerLock = Mutex()
+    private var currentLanguage: String = "ja"
+    private var recognizer: TextRecognizer = createRecognizer(currentLanguage)
     private var currentRotation: Int = Surface.ROTATION_0
 
     private fun createRecognizer(languageCode: String): TextRecognizer {
@@ -36,11 +43,12 @@ object OCRProcessor {
         }
     }
 
-    // Data class to hold text with position information
+    // ML Kit doesn't expose per-block confidence scores, so [confidence] is informational only and
+    // defaults to 1f. The accessibility path also reports 1f to match.
     data class TextBlock(
         val text: String,
         val boundingBox: Rect,
-        val confidence: Float
+        val confidence: Float = 1f
     )
 
     fun setScreenRotation(rotation: Int) {
@@ -48,62 +56,46 @@ object OCRProcessor {
         currentRotation = rotation
     }
 
-
-    fun setLanguage(languageCode: String) {
-        Log.d("OCRProcessor", "Setting OCR language to: $languageCode") // <<< Add this log
-        recognizer.close()
-        recognizer = createRecognizer(languageCode)
+    suspend fun setLanguage(languageCode: String) {
+        recognizerLock.withLock {
+            if (languageCode == currentLanguage) return@withLock
+            Log.d("OCRProcessor", "Switching OCR language: $currentLanguage -> $languageCode")
+            try { recognizer.close() } catch (e: Exception) { Log.w("OCRProcessor", "close() failed", e) }
+            recognizer = createRecognizer(languageCode)
+            currentLanguage = languageCode
+        }
     }
 
     /** Clean suspend OCR: returns recognized blocks (empty on failure). */
     suspend fun recognize(bitmap: Bitmap): List<TextBlock> = withContext(Dispatchers.IO) {
-        // The MediaProjection mirror is already upright in the capture buffer, so no rotation hint.
-        val image = InputImage.fromBitmap(bitmap, 0)
-        suspendCancellableCoroutine { cont ->
-            recognizer.process(image)
-                .addOnSuccessListener { visionText -> cont.resume(extractTextBlocks(visionText)) }
-                .addOnFailureListener { e ->
-                    Log.e("OCRProcessor", "Text recognition failed", e)
-                    cont.resume(emptyList())
-                }
+        // Holding the lock for the duration of the recognition guarantees the recognizer isn't
+        // closed by a concurrent setLanguage() call while ML Kit is still consuming it.
+        recognizerLock.withLock {
+            // The MediaProjection mirror is already upright in the capture buffer, so no rotation hint.
+            val image = InputImage.fromBitmap(bitmap, 0)
+            suspendCancellableCoroutine { cont ->
+                recognizer.process(image)
+                    .addOnSuccessListener { visionText -> cont.resume(extractTextBlocks(visionText)) }
+                    .addOnFailureListener { e ->
+                        Log.e("OCRProcessor", "Text recognition failed", e)
+                        cont.resume(emptyList())
+                    }
+            }
         }
     }
 
-    // Extract text blocks with position information
     private fun extractTextBlocks(visionText: Text): List<TextBlock> {
-        val textBlocks = mutableListOf<TextBlock>()
-
+        val out = ArrayList<TextBlock>(visionText.textBlocks.size)
         for (block in visionText.textBlocks) {
             val boundingBox = block.boundingBox ?: continue
-
-            // Calculate confidence (average of line confidences)
-            var totalConfidence = 0f
-            var lineCount = 0
-
-            for (line in block.lines) {
-                // ML Kit doesn't provide confidence scores directly,
-                // but we can estimate based on other factors
-                val lineConfidence = 0.8f // Default confidence
-                totalConfidence += lineConfidence
-                lineCount++
-            }
-
-            val avgConfidence = if (lineCount > 0) totalConfidence / lineCount else 0.5f
-
-            textBlocks.add(
-                TextBlock(
-                    text = block.text,
-                    boundingBox = boundingBox,
-                    confidence = avgConfidence
-                )
-            )
+            out.add(TextBlock(text = block.text, boundingBox = boundingBox))
         }
-
-        return textBlocks
+        return out
     }
 
-    fun cleanup() {
-        recognizer.close()
+    suspend fun cleanup() {
+        recognizerLock.withLock {
+            try { recognizer.close() } catch (e: Exception) { Log.w("OCRProcessor", "cleanup close() failed", e) }
+        }
     }
-
 }
