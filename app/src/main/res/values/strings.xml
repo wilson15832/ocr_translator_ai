@@ -73,6 +73,7 @@
     <string name="collapse_controls">Less Options</string>
     <string name="highlight">Highlight</string>
     <string name="text_copied_to_clipboard">Text copied to clipboard</string>
+    <string name="control_panel_collapse">Collapse</string>
 
     <!-- Permissions -->
     <string name="overlay_permission_title">Overlay Permission</string>

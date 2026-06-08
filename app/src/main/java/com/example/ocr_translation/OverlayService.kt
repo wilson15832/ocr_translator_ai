@@ -852,58 +852,58 @@ class OverlayService : Service() {
                 createOverlayForTranslation(translation, rotation)
             }
         }*/
-            // === New Logic: Merge Translations and Create a Single Draggable Block ===
+        // === New Logic: Merge Translations and Create a Single Draggable Block ===
         if (translations.isNotEmpty()) {
             val stringBuilder = StringBuilder()
             val combinedOriginalRect = Rect() // Optional: calculate combined bounding box if needed
 
             for (translation in translations) {
-                    stringBuilder.append(translation.translatedText).append("\n") // Combine translated text
-                    // Optional: update combinedOriginalRect to encompass all block bounding boxes
-                    // if (combinedOriginalRect.isEmpty) {
-                    //    combinedOriginalRect.set(translation.boundingBox)
-                    // } else {
-                    //    combinedOriginalRect.union(translation.boundingBox)
-                    // }
-                }
+                stringBuilder.append(translation.translatedText).append("\n") // Combine translated text
+                // Optional: update combinedOriginalRect to encompass all block bounding boxes
+                // if (combinedOriginalRect.isEmpty) {
+                //    combinedOriginalRect.set(translation.boundingBox)
+                // } else {
+                //    combinedOriginalRect.union(translation.boundingBox)
+                // }
+            }
 
             val combinedText = stringBuilder.toString().trim()
 
             // Create a single TextView (or other container like ScrollView  TextView)
             val mergedTextView = TextView(this).apply {
-                    text = combinedText
-                    setTextColor(PreferencesManager.getInstance(context).translationTextColor)
-                    typeface = resultTypeface()
-                    textSize = 14f * textSizeMultiplier // Apply text size setting
-                    setPadding(20, 14, 20, 14)
-                    background = buildResultBackground()
-                    elevation = 6f
+                text = combinedText
+                setTextColor(PreferencesManager.getInstance(context).translationTextColor)
+                typeface = resultTypeface()
+                textSize = 14f * textSizeMultiplier // Apply text size setting
+                setPadding(20, 14, 20, 14)
+                background = buildResultBackground()
+                elevation = 6f
 
-                    // Make it respond to long clicks (if needed for combined text)
-                    // Don't consume touches, so the container's drag listener can move the overlay
-                    isClickable = false
-                    isLongClickable = false
-                }
+                // Make it respond to long clicks (if needed for combined text)
+                // Don't consume touches, so the container's drag listener can move the overlay
+                isClickable = false
+                isLongClickable = false
+            }
 
             // Add the merged TextView to the translation overlay container
             translationOverlay.addView(mergedTextView, FrameLayout.LayoutParams(
-                     ViewGroup.LayoutParams.WRAP_CONTENT, // TextView size based on content
-                     ViewGroup.LayoutParams.WRAP_CONTENT
-                         ))
+                ViewGroup.LayoutParams.WRAP_CONTENT, // TextView size based on content
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
 
             // Store the single view if needed, but clearing translatedViews might be sufficient
             // translatedViews[0] = mergedTextView // Example if you need to reference it later
 
             // Add highlights for original blocks if enabled
             if (highlightOriginalText) {
-                    // Keep adding highlight views for original blocks
-                     for (translation in translations) {
-                             val rect = translation.boundingBox
-                             // You might need to adjust rect for rotation here if addHighlight doesn't
-                             val highlightRect = getRotatedRect(rect, rotation) // Reuse your rotation adjustment logic
-                             addHighlight(highlightRect)
-                         }
+                // Keep adding highlight views for original blocks
+                for (translation in translations) {
+                    val rect = translation.boundingBox
+                    // You might need to adjust rect for rotation here if addHighlight doesn't
+                    val highlightRect = getRotatedRect(rect, rotation) // Reuse your rotation adjustment logic
+                    addHighlight(highlightRect)
                 }
+            }
 
 
             translationOverlay.visibility = View.VISIBLE // Show the overlay container
@@ -1311,13 +1311,28 @@ class OverlayService : Service() {
     }
 
     private fun resultTypeface(): android.graphics.Typeface {
-        val name = PreferencesManager.getInstance(this).translationFont
-        // Bundled fonts live in res/font/<name>.ttf; otherwise treat the value as a system family
+        val prefs = PreferencesManager.getInstance(this)
+        // 1) User-loaded font wins if the file is still present (the user may have cleared/replaced
+        //    it through settings; we tolerate stale paths by falling back to the spinner choice).
+        val customPath = prefs.customFontPath
+        if (customPath.isNotEmpty()) {
+            try {
+                val f = java.io.File(customPath)
+                if (f.exists() && f.canRead()) {
+                    return android.graphics.Typeface.createFromFile(f)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Custom font load failed; falling back", e)
+            }
+        }
+        // 2) Bundled .ttf in res/font/<name>.ttf
+        val name = prefs.translationFont
         val resId = resources.getIdentifier(name, "font", packageName)
         return if (resId != 0) {
             androidx.core.content.res.ResourcesCompat.getFont(this, resId)
                 ?: android.graphics.Typeface.DEFAULT
         } else {
+            // 3) System family name fallback (e.g. "sans-serif", "monospace")
             android.graphics.Typeface.create(name, android.graphics.Typeface.NORMAL)
         }
     }

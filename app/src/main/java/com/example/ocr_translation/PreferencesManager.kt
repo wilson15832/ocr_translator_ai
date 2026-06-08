@@ -203,6 +203,47 @@ class PreferencesManager private constructor(context: Context) {
         get() = prefs.getString("translation_font", "sans-serif") ?: "sans-serif"
         set(value) = prefs.edit { putString("translation_font", value) }
 
+    // User-loaded font file (absolute path inside filesDir; "" = no custom font, use [translationFont]).
+    // Set via SettingsActivity's "Load custom font" picker, which copies the .ttf/.otf here.
+    var customFontPath: String
+        get() = prefs.getString("custom_font_path", "") ?: ""
+        set(value) = prefs.edit { putString("custom_font_path", value) }
+
+    // ---- Control panel (floating bar) styling ----
+    // "horizontal" (default) or "vertical" — orientation of the button strip
+    var controlPanelOrientation: String
+        get() = prefs.getString("control_panel_orientation", "horizontal") ?: "horizontal"
+        set(value) = prefs.edit { putString("control_panel_orientation", value) }
+
+    // ARGB; alpha component is overwritten by [controlPanelOpacity] at draw time.
+    var controlPanelBgColor: Int
+        get() = prefs.getInt("control_panel_bg_color", 0xFF333333.toInt())
+        set(value) = prefs.edit { putInt("control_panel_bg_color", value) }
+
+    // 0.0 = transparent, 1.0 = opaque
+    var controlPanelOpacity: Float
+        get() = prefs.getFloat("control_panel_opacity", 0.8f)
+        set(value) = prefs.edit { putFloat("control_panel_opacity", value) }
+
+    // Last-known control panel position (saved on drag release). Int.MIN_VALUE = not yet placed.
+    var controlPanelX: Int
+        get() = prefs.getInt("control_panel_x", Int.MIN_VALUE)
+        set(value) = prefs.edit { putInt("control_panel_x", value) }
+
+    var controlPanelY: Int
+        get() = prefs.getInt("control_panel_y", Int.MIN_VALUE)
+        set(value) = prefs.edit { putInt("control_panel_y", value) }
+
+    // ---- Save translations to text file ----
+    var saveToFileEnabled: Boolean
+        get() = prefs.getBoolean("save_to_file_enabled", false)
+        set(value) = prefs.edit { putBoolean("save_to_file_enabled", value) }
+
+    // SAF directory tree URI (granted via ACTION_OPEN_DOCUMENT_TREE). "" = not configured.
+    var saveFolderUri: String
+        get() = prefs.getString("save_folder_uri", "") ?: ""
+        set(value) = prefs.edit { putString("save_folder_uri", value) }
+
     // Customizable LLM prompts ({source}, {target}, {text} placeholders in the user prompt)
     var systemPrompt: String
         get() = prefs.getString("system_prompt", DEFAULT_SYSTEM_PROMPT) ?: DEFAULT_SYSTEM_PROMPT

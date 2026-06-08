@@ -142,13 +142,16 @@ class TranslationPipeline(
      * Accessibility path: translate pre-extracted text [blocks] whose [boundingBox]es are already
      * absolute screen coordinates. Skips crop/OCR. [sampleFrame] (optional) is used only to sample
      * each block's background colour for in-place rendering; it is recycled here.
+     *
+     * [bypassCache] forces a fresh LLM call (used by the user-initiated "re-translate" action).
      */
     suspend fun processBlocks(
         blocks: List<OCRProcessor.TextBlock>,
         sourceLanguage: String,
         targetLanguage: String,
         force: Boolean = false,
-        sampleFrame: Bitmap? = null
+        sampleFrame: Bitmap? = null,
+        bypassCache: Boolean = false
     ) {
         try {
             if (blocks.isEmpty()) {
@@ -161,7 +164,7 @@ class TranslationPipeline(
                 Log.d(TAG, "Accessibility text ~unchanged — skipping translation request")
                 return
             }
-            val results = translator.translateText(blocks, sourceLanguage, targetLanguage)
+            val results = translator.translateText(blocks, sourceLanguage, targetLanguage, bypassCache)
             val finalResults = results.map { block ->
                 val bg = if (sampleFrame != null && !sampleFrame.isRecycled)
                     sampleBackgroundColor(sampleFrame, block.boundingBox) else 0

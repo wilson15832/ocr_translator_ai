@@ -14,6 +14,11 @@ import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.example.ocr_translation.TranslationService.TranslatedBlock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -110,14 +115,23 @@ class ScreenCaptureService : Service() {
         // false = manual (default): translate only when requestManualTranslation() is called.
         // true  = auto: translate every capture cycle.
         @Volatile var autoMode: Boolean = false
-        @Volatile private var manualRequested: Boolean = false
 
-        fun requestManualTranslation() { manualRequested = true }
+        // Manual-translate request kinds.
+        // AUTO     = let the service decide: if a translation is currently shown, re-translate the
+        //            cached OCR blocks (skip OCR + force fresh LLM call); otherwise do a full pass.
+        // FORCE_OCR = always re-run OCR (use this when the user knows the screen content changed and
+        //            the cached blocks would be stale).
+        enum class ManualKind { AUTO, FORCE_OCR }
+        @Volatile private var manualRequest: ManualKind? = null
 
-        private fun consumeManualRequest(): Boolean {
-            if (!manualRequested) return false
-            manualRequested = false
-            return true
+        fun requestManualTranslation(kind: ManualKind = ManualKind.AUTO) {
+            manualRequest = kind
+        }
+
+        private fun consumeManualRequest(): ManualKind? {
+            val k = manualRequest ?: return null
+            manualRequest = null
+            return k
         }
 
         // Set by the overlay's touch-watch window whenever the user taps anywhere
@@ -216,13 +230,14 @@ class ScreenCaptureService : Service() {
                 lastResultRects = results.map { it.boundingBox }
                 if (results.isNotEmpty()) lastShownResults = results   // cache for unchanged re-scans
                 OverlayService.showTranslation(results)
+                if (results.isNotEmpty()) appendTranslationsToFile(results)
             } else {
                 Log.d(TAG, "Discarding stale translation — user tapped during it")
             }
         }
         // Start in manual mode so we don't OCR/translate the app's own UI on launch
         autoMode = false
-        manualRequested = false
+        manualRequest = null
 
         // Initialize current rotation
         val display = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
@@ -577,11 +592,7 @@ class ScreenCaptureService : Service() {
                     val inPlace = prefs.inPlaceMode
                     val useA11y = prefs.useAccessibility && AccessibilityTextService.isConnected()
                     when {
-                        manual && useA11y -> accessibilityTranslate(force = true)
-                        manual -> {
-                            performTranslation(force = true)
-                            enterSteady()
-                        }
+                        manual != null -> handleManualRequest(manual, useA11y, prefs)
                         useA11y && autoMode -> accessibilityTranslate(force = false)
                         inPlace && autoMode -> inPlaceAutoStep()
                         autoMode -> mergedAutoStep()
@@ -604,6 +615,51 @@ class ScreenCaptureService : Service() {
             }
         }
         Log.d("ScreenCaptureService", "Periodic capture loop exited.") // <-- 日志12
+    }
+
+    /**
+     * Resolve a manual translate request.
+     *
+     * AUTO + we already have a translation on screen → skip OCR, re-feed the cached OCR blocks to
+     * the translator with [bypassCache] = true so the LLM produces a fresh (often different) result.
+     * Saves ~300ms of OCR plus the second captureScreen, and lets the user "try again" without
+     * losing the box (no flash to empty + scan).
+     *
+     * FORCE_OCR, or AUTO with no cached blocks → full pipeline (capture, OCR, translate).
+     */
+    private suspend fun handleManualRequest(
+        kind: ManualKind,
+        useA11y: Boolean,
+        prefs: PreferencesManager
+    ) {
+        val canReuse = kind == ManualKind.AUTO && lastShownResults.isNotEmpty()
+        if (canReuse) {
+            Log.d(TAG, "Manual re-translate: reusing ${lastShownResults.size} cached blocks (bypassCache)")
+            // lastShownResults already carries absolute screen coordinates and accurate text per block.
+            val blocks = lastShownResults.map {
+                OCRProcessor.TextBlock(text = it.originalText, boundingBox = it.boundingBox)
+            }
+            // Sample bg colours from a fresh frame so colours adapt if the screen scrolled / dimmed.
+            val sampleFrame = if (prefs.inPlaceMode) captureScreen() else null
+            translationStartSession = sessionId
+            pipeline.processBlocks(
+                blocks = blocks,
+                sourceLanguage = prefs.sourceLanguage,
+                targetLanguage = prefs.targetLanguage,
+                force = true,
+                sampleFrame = sampleFrame,
+                bypassCache = true
+            )
+            // Stay in current state machine position — don't disturb steady/scanning of the auto loop.
+            return
+        }
+        // Fall through to a full translation pass (with OCR).
+        if (useA11y) {
+            accessibilityTranslate(force = true)
+        } else {
+            performTranslation(force = true)
+            enterSteady()
+        }
     }
 
     // One real translation pass: hide our overlay, grab a clean frame, restore, then OCR/translate.
@@ -1075,5 +1131,61 @@ class ScreenCaptureService : Service() {
         }
 
         super.onDestroy()
+    }
+
+    // ===== Save translations to text file (SAF) =====
+    // Session file is named once per service run and re-used for the whole session.
+    @Volatile private var sessionFileName: String? = null
+
+    /**
+     * Append `original → translation` lines to a text file in the user-picked SAF folder.
+     * Silently no-ops when the feature is disabled, the folder URI is missing, or the user
+     * revoked the persistable permission. We never raise — file output is best-effort and must
+     * not interfere with the live translation flow.
+     */
+    private fun appendTranslationsToFile(results: List<TranslatedBlock>) {
+        val prefs = PreferencesManager.getInstance(this)
+        if (!prefs.saveToFileEnabled) return
+        val folderUriStr = prefs.saveFolderUri
+        if (folderUriStr.isEmpty()) return
+
+        serviceScope.launch {
+            try {
+                val folderUri = Uri.parse(folderUriStr)
+                val dir = DocumentFile.fromTreeUri(this@ScreenCaptureService, folderUri)
+                if (dir == null || !dir.canWrite()) {
+                    Log.w(TAG, "Save-to-file: folder unwritable, skipping")
+                    return@launch
+                }
+
+                val fileName = sessionFileName ?: run {
+                    val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                    "translations_$stamp.txt".also { sessionFileName = it }
+                }
+                val file = dir.findFile(fileName)
+                    ?: dir.createFile("text/plain", fileName)
+                    ?: run {
+                        Log.w(TAG, "Save-to-file: createFile returned null for $fileName")
+                        return@launch
+                    }
+
+                val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+                val sb = StringBuilder()
+                sb.append("--- ").append(time).append(" ---\n")
+                for (b in results) {
+                    sb.append(b.originalText).append('\n')
+                    sb.append("→ ").append(b.translatedText).append("\n\n")
+                }
+                // openOutputStream(uri, "wa") = write+append on SAF document providers that honour it
+                contentResolver.openOutputStream(file.uri, "wa")?.use { out ->
+                    out.write(sb.toString().toByteArray(Charsets.UTF_8))
+                    out.flush()
+                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Save-to-file: lost permission to ${prefs.saveFolderUri}", e)
+            } catch (e: Exception) {
+                Log.w(TAG, "Save-to-file failed", e)
+            }
+        }
     }
 }

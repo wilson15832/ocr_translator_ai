@@ -84,21 +84,26 @@ class TranslationService private constructor(private val context: Context) {
     }
 
 
-    // Main translation function
+    // Main translation function.
+    // [bypassCache] = true skips the cache lookup AND overwrites any existing cache entry with the
+    // fresh result. Used by "re-translate" so the user can get a different LLM output (the model
+    // is non-deterministic) instead of the same cached one.
     suspend fun translateText(
         textBlocks: List<OCRProcessor.TextBlock>,
         sourceLanguage: String,
-        targetLanguage: String
+        targetLanguage: String,
+        bypassCache: Boolean = false
     ): List<TranslatedBlock> {
         return withContext(Dispatchers.IO) {
             // Check cache first
             loadConfig(PreferencesManager.getInstance(context))
 
             val cacheKey = generateCacheKey(textBlocks, sourceLanguage, targetLanguage)
-            val cachedResult = translationCache.getTranslation(cacheKey)
-
-            if (cachedResult != null) {
-                return@withContext cachedResult
+            if (!bypassCache) {
+                val cachedResult = translationCache.getTranslation(cacheKey)
+                if (cachedResult != null) {
+                    return@withContext cachedResult
+                }
             }
 
             // Prepare for translation

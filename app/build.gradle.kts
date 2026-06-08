@@ -86,6 +86,9 @@ dependencies {
 
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // DocumentFile helper for Storage Access Framework writes (save-to-file feature)
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
 
     //implementation("com.google.cloud:google-cloud-translate:2.3.3") // 使用最新版本
     //implementation("androidx.compose.foundation:foundation:1.5.0")
