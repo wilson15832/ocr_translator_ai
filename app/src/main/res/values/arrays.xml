@@ -123,4 +123,14 @@
         <item>kosugi_maru</item>
         <item>zcool_kuaile</item>
     </string-array>
+
+    <!-- Floating control panel orientation -->
+    <string-array name="control_panel_orientation_options">
+        <item>Horizontal</item>
+        <item>Vertical</item>
+    </string-array>
+    <string-array name="control_panel_orientation_values">
+        <item>horizontal</item>
+        <item>vertical</item>
+    </string-array>
 </resources>

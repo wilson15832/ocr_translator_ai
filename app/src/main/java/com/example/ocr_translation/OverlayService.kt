@@ -32,6 +32,7 @@ import android.widget.PopupMenu
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.cardview.widget.CardView
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import android.view.Surface
@@ -232,6 +233,10 @@ class OverlayService : Service() {
                 } else {
                     activeTranslationArea?.let { updateAreaIndicator(it) }
                 }
+
+                // Control panel styling — applied live so the user sees orientation / colour /
+                // opacity changes immediately without having to toggle the overlay off and on.
+                applyControlPanelStyle()
             }
         }
     }
@@ -357,6 +362,10 @@ class OverlayService : Service() {
                 R.layout.overlay_control_panel, null
             )
 
+            val prefs = PreferencesManager.getInstance(this)
+            val savedX = prefs.controlPanelX
+            val savedY = prefs.controlPanelY
+
             val controlParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -364,20 +373,49 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,  // Keep this flag
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = 0
-                y = 100
+                // First launch: place against the top-right edge as before. Once the user drags the
+                // panel anywhere, [setupControlPanelDrag] persists the absolute position and we use
+                // TOP|START on subsequent boots so the saved coords interpret consistently.
+                if (savedX == Int.MIN_VALUE || savedY == Int.MIN_VALUE) {
+                    gravity = Gravity.TOP or Gravity.END
+                    x = 0; y = 100
+                } else {
+                    gravity = Gravity.TOP or Gravity.START
+                    x = savedX; y = savedY
+                }
             }
 
+            applyControlPanelStyle()       // orientation + bg color + opacity from prefs
             setupControlPanelButtons()
             setupControlPanelDrag(controlParams)
 
             windowManager.addView(controlPanel, controlParams)
-            Log.d(TAG, "Control panel added successfully")
+            Log.d(TAG, "Control panel added successfully (x=${controlParams.x}, y=${controlParams.y})")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create control panel: ${e.message}", e)
             createFallbackControlPanel()
         }
+    }
+
+    /**
+     * Reads the control panel's appearance prefs (orientation / bg color / opacity) and applies
+     * them to the live view. Safe to call repeatedly (e.g. after Settings broadcasts an update).
+     */
+    private fun applyControlPanelStyle() {
+        if (!::controlPanel.isInitialized) return
+        val prefs = PreferencesManager.getInstance(this)
+        // Orientation: swap the inner LinearLayout's axis. Buttons stay the same; the parent
+        // CardView re-measures to wrap_content so the bar becomes a vertical strip.
+        val bar = controlPanel.findViewById<LinearLayout>(R.id.barContent)
+        bar?.orientation = if (prefs.controlPanelOrientation == "vertical")
+            LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+
+        // Bg color + opacity: combine RGB with the slider-controlled alpha. The CardView's own
+        // setCardBackgroundColor honours alpha for the surface, including the rounded corners.
+        val baseRgb = prefs.controlPanelBgColor and 0x00FFFFFF
+        val alpha = (255f * prefs.controlPanelOpacity.coerceIn(0f, 1f)).toInt()
+        val combined = (alpha shl 24) or baseRgb
+        (controlPanel as? CardView)?.setCardBackgroundColor(combined)
     }
 
     private fun setupControlPanelButtons() {
@@ -398,10 +436,18 @@ class OverlayService : Service() {
             Log.d(TAG, "Auto mode: $enabled")
         }
 
-        // Manual translate — translate whatever is on screen right now, once
-        controlPanel.findViewById<View>(R.id.btnTranslateNow).setOnClickListener {
-            Log.d(TAG, "Manual translate requested")
-            ScreenCaptureService.requestManualTranslation()
+        // Manual translate — short tap re-translates the current OCR blocks if a translation is
+        // showing (skips OCR, forces a fresh LLM call). Long-press forces a full OCR+translate pass
+        // (use this if the screen content actually changed since the last translation).
+        val btnTranslate = controlPanel.findViewById<View>(R.id.btnTranslateNow)
+        btnTranslate.setOnClickListener {
+            Log.d(TAG, "Manual translate (AUTO) requested")
+            ScreenCaptureService.requestManualTranslation(ScreenCaptureService.ManualKind.AUTO)
+        }
+        btnTranslate.setOnLongClickListener {
+            Log.d(TAG, "Manual translate (FORCE_OCR) requested")
+            ScreenCaptureService.requestManualTranslation(ScreenCaptureService.ManualKind.FORCE_OCR)
+            true
         }
 
         // Select translation area — draw a box directly over the current screen
@@ -409,6 +455,10 @@ class OverlayService : Service() {
             Log.d(TAG, "Select area clicked")
             startAreaSelection()
         }
+
+        // Dedicated collapse / expand button (in addition to the double-tap gesture)
+        val btnFold = controlPanel.findViewById<ImageButton>(R.id.btnFold)
+        btnFold?.setOnClickListener { toggleControlPanelFold() }
 
         // Close — stop translation entirely (overlay + capture)
         controlPanel.findViewById<View>(R.id.btnClose).setOnClickListener {
@@ -429,19 +479,26 @@ class OverlayService : Service() {
         val auto = controlPanel.findViewById<View>(R.id.btnAutoToggle)
         val translate = controlPanel.findViewById<View>(R.id.btnTranslateNow)
         val crop = controlPanel.findViewById<View>(R.id.btnSelectArea)
+        val fold = controlPanel.findViewById<ImageButton>(R.id.btnFold)
         val close = controlPanel.findViewById<View>(R.id.btnClose)
         if (controlPanelFolded) {
-            // Keep only the user's preferred control visible
             val favorite = PreferencesManager.getInstance(this).foldFavorite
             auto.visibility = if (favorite == "auto") View.VISIBLE else View.GONE
             translate.visibility = if (favorite == "auto") View.GONE else View.VISIBLE
             crop.visibility = View.GONE
             close.visibility = View.GONE
+            // Fold button stays visible so the user can expand again with a single tap.
+            fold?.visibility = View.VISIBLE
+            fold?.setImageResource(R.drawable.ic_expand)
+            fold?.contentDescription = getString(R.string.control_panel_expand)
         } else {
             auto.visibility = View.VISIBLE
             translate.visibility = View.VISIBLE
             crop.visibility = View.VISIBLE
             close.visibility = View.VISIBLE
+            fold?.visibility = View.VISIBLE
+            fold?.setImageResource(R.drawable.ic_collapse)
+            fold?.contentDescription = getString(R.string.control_panel_collapse)
         }
         Log.d(TAG, "Control panel folded=$controlPanelFolded")
     }
@@ -556,6 +613,7 @@ class OverlayService : Service() {
         var initialY: Int = 0
         var initialTouchX: Float = 0f
         var initialTouchY: Float = 0f
+        var dragged = false
 
         controlPanel.setOnTouchListener { _, event ->
             when (event.action) {
@@ -564,13 +622,39 @@ class OverlayService : Service() {
                     initialY = params.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
+                    dragged = false
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
+                    val dx = (event.rawX - initialTouchX).toInt()
+                    val dy = (event.rawY - initialTouchY).toInt()
+                    if (!dragged && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+                        // First drag from the corner-anchored initial layout: switch to absolute
+                        // TOP|START so the saved coordinates make sense across sessions.
+                        if (params.gravity != (Gravity.TOP or Gravity.START)) {
+                            // Snapshot the *current on-screen* position before switching gravity,
+                            // otherwise the panel would jump when the anchor flips.
+                            val loc = IntArray(2)
+                            controlPanel.getLocationOnScreen(loc)
+                            params.gravity = Gravity.TOP or Gravity.START
+                            initialX = loc[0]
+                            initialY = loc[1]
+                        }
+                        dragged = true
+                    }
+                    params.x = initialX + dx
+                    params.y = initialY + dy
                     windowManager.updateViewLayout(controlPanel, params)
                     true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragged) {
+                        val prefs = PreferencesManager.getInstance(this)
+                        prefs.controlPanelX = params.x
+                        prefs.controlPanelY = params.y
+                        Log.d(TAG, "Control panel position saved: x=${params.x}, y=${params.y}")
+                    }
+                    false
                 }
                 else -> false
             }

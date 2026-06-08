@@ -88,6 +88,8 @@ class ScreenCaptureService : Service() {
     private var postTapDeadline = 0L
     @Volatile private var translationStartSession = 0
 
+    enum class ManualKind { AUTO, FORCE_OCR }
+
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 1003 // 通知 ID，不能和 OverlayService 冲突
         private const val CAPTURE_CHANNEL_ID = "screen_capture_channel"
@@ -121,7 +123,6 @@ class ScreenCaptureService : Service() {
         //            cached OCR blocks (skip OCR + force fresh LLM call); otherwise do a full pass.
         // FORCE_OCR = always re-run OCR (use this when the user knows the screen content changed and
         //            the cached blocks would be stale).
-        enum class ManualKind { AUTO, FORCE_OCR }
         @Volatile private var manualRequest: ManualKind? = null
 
         fun requestManualTranslation(kind: ManualKind = ManualKind.AUTO) {

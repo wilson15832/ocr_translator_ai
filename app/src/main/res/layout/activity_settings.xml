@@ -562,6 +562,179 @@
                         android:layout_marginTop="8dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== Control panel styling ===== -->
+            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView style="@style/SectionHeader"
+                        android:text="@string/control_panel_section" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/control_panel_orientation" />
+
+                        <Spinner
+                            android:id="@+id/spinnerControlPanelOrientation"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="8dp"
+                            android:minHeight="48dp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/control_panel_background_color" />
+
+                        <Spinner
+                            android:id="@+id/spinnerControlPanelBgColor"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="8dp"
+                            android:minHeight="48dp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/control_panel_opacity" />
+
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/sliderControlPanelOpacity"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="8dp"
+                            android:valueFrom="0.1"
+                            android:valueTo="1.0"
+                            android:stepSize="0.05" />
+
+                        <TextView
+                            android:id="@+id/textControlPanelOpacityValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minWidth="48dp"
+                            android:gravity="end" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== Save translations to text file ===== -->
+            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView style="@style/SectionHeader"
+                        android:text="@string/save_to_file_section" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchSaveToFile"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/save_to_file_enabled"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        android:id="@+id/textSaveFolderCurrent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/save_folder_none"
+                        android:textSize="12sp"
+                        android:layout_marginTop="6dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnChooseSaveFolder"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/save_folder_choose"
+                        android:layout_marginTop="6dp"
+                        app:cornerRadius="12dp"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/save_to_file_hint"
+                        android:textSize="12sp"
+                        android:layout_marginTop="6dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===== Custom font ===== -->
+            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView style="@style/SectionHeader"
+                        android:text="@string/custom_font_section" />
+
+                    <TextView
+                        android:id="@+id/textCustomFontCurrent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/custom_font_none"
+                        android:textSize="12sp"
+                        android:layout_marginTop="4dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="6dp">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnLoadCustomFont"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/custom_font_load"
+                            android:layout_marginEnd="6dp"
+                            app:cornerRadius="12dp"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnClearCustomFont"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/custom_font_clear"
+                            android:layout_marginStart="6dp"
+                            app:cornerRadius="12dp"
+                            style="@style/Widget.MaterialComponents.Button.TextButton" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
         <!-- Action buttons -->

@@ -1,25 +1,40 @@
 package com.example.ocr_translation
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.MenuItem
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.example.ocr_translation.PreferencesManager
 import com.example.ocr_translation.databinding.ActivitySettingsBinding
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.util.Log
+import java.io.File
 
 class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var preferencesManager: PreferencesManager
+
+    // Folder picker (SAF) for "save translations to file" — returns a tree URI that we persist
+    // permission for so the ScreenCaptureService can write to it across process restarts.
+    private lateinit var pickSaveFolder: ActivityResultLauncher<Uri?>
+
+    // File picker for a user .ttf/.otf font; we copy it into filesDir so the path stays valid
+    // across app updates and the file content URI doesn't expire.
+    private lateinit var pickCustomFont: ActivityResultLauncher<Array<String>>
 
     companion object {
         private const val TAG = "SettingsActivity"
         const val EXTRA_SECTION = "section"
         const val SECTION_TRANSLATION = "translation"
         const val SECTION_OVERLAY = "overlay"
+        // File name inside filesDir/ where we keep the user-loaded font.
+        private const val CUSTOM_FONT_FILENAME = "custom_font.ttf"
     }
 
 
@@ -30,6 +45,41 @@ class SettingsActivity : AppCompatActivity() {
 
         // Set up toolbar with back button
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+        // Register the SAF launchers before any UI wiring touches them.
+        pickSaveFolder = registerForActivityResult(
+            ActivityResultContracts.OpenDocumentTree()
+        ) { uri ->
+            if (uri == null) return@registerForActivityResult
+            try {
+                // Persist permission so the service can write across reboots.
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, flags)
+                preferencesManager.saveFolderUri = uri.toString()
+                refreshSaveFolderLabel()
+                Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
+            } catch (e: SecurityException) {
+                Log.e(TAG, "takePersistableUriPermission failed", e)
+                Toast.makeText(this, R.string.save_folder_unset, Toast.LENGTH_LONG).show()
+            }
+        }
+
+        pickCustomFont = registerForActivityResult(
+            ActivityResultContracts.OpenDocument()
+        ) { uri ->
+            if (uri == null) return@registerForActivityResult
+            lifecycleScope.launch {
+                val ok = copyFontToFilesDir(uri)
+                if (ok) {
+                    refreshCustomFontLabel()
+                    Toast.makeText(this@SettingsActivity, R.string.custom_font_loaded, Toast.LENGTH_SHORT).show()
+                    // Apply immediately so the user sees the new font in the next translation
+                    updateActiveServices()
+                } else {
+                    Toast.makeText(this@SettingsActivity, R.string.custom_font_load_failed, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
 
         // Show only the requested group (homepage opens one or the other)
         when (intent.getStringExtra(EXTRA_SECTION)) {
@@ -96,6 +146,18 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchUseAccessibility.isChecked = preferencesManager.useAccessibility
         binding.spinnerFont.setSelection(fontIndex(preferencesManager.translationFont))
 
+        // Control panel styling
+        binding.spinnerControlPanelOrientation.setSelection(
+            controlPanelOrientationIndex(preferencesManager.controlPanelOrientation)
+        )
+        binding.spinnerControlPanelBgColor.setSelection(colorIndex(preferencesManager.controlPanelBgColor))
+        binding.sliderControlPanelOpacity.value = preferencesManager.controlPanelOpacity
+
+        // Save-to-file + custom font
+        binding.switchSaveToFile.isChecked = preferencesManager.saveToFileEnabled
+        refreshSaveFolderLabel()
+        refreshCustomFontLabel()
+
         // Cache settings
         binding.sliderMaxCache.value = preferencesManager.maxCacheEntries.toFloat()
         binding.sliderCacheTtl.value = preferencesManager.cacheTtlHours.toFloat()
@@ -134,6 +196,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.textHistoryDaysValue.text = getString(
             R.string.days_value,
             binding.sliderHistoryDays.value.toInt()
+        )
+
+        binding.textControlPanelOpacityValue.text = getString(
+            R.string.percentage_value,
+            (binding.sliderControlPanelOpacity.value * 100).toInt()
         )
     }
 
@@ -198,6 +265,39 @@ class SettingsActivity : AppCompatActivity() {
             binding.editApiKey.isEnabled = !isChecked
             binding.spinnerModel.isEnabled = !isChecked
         }
+
+        // Control panel opacity live readout
+        binding.sliderControlPanelOpacity.addOnChangeListener { _, value, _ ->
+            binding.textControlPanelOpacityValue.text = getString(
+                R.string.percentage_value,
+                (value * 100).toInt()
+            )
+        }
+
+        // Save-to-file: launch folder picker
+        binding.btnChooseSaveFolder.setOnClickListener {
+            try {
+                pickSaveFolder.launch(null)
+            } catch (e: Exception) {
+                Log.e(TAG, "OpenDocumentTree launch failed", e)
+                Toast.makeText(this, "File picker unavailable", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Custom font: launch document picker (accept any file; we still validate by trying to
+        // load the typeface, since the system picker doesn't reliably filter by .ttf/.otf alone).
+        binding.btnLoadCustomFont.setOnClickListener {
+            try {
+                pickCustomFont.launch(arrayOf("font/*", "application/octet-stream", "*/*"))
+            } catch (e: Exception) {
+                Log.e(TAG, "OpenDocument launch failed", e)
+                Toast.makeText(this, "File picker unavailable", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.btnClearCustomFont.setOnClickListener {
+            clearCustomFont()
+        }
     }
 
     private fun setupLanguageSpinners() {
@@ -251,6 +351,15 @@ class SettingsActivity : AppCompatActivity() {
         val fonts = resources.getStringArray(R.array.font_options)
         binding.spinnerFont.adapter =
             android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, fonts)
+
+        // Control panel styling spinners
+        val orientationLabels = resources.getStringArray(R.array.control_panel_orientation_options)
+        binding.spinnerControlPanelOrientation.adapter =
+            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, orientationLabels)
+
+        // Reuse the existing palette for the control panel background colour
+        binding.spinnerControlPanelBgColor.adapter =
+            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colors)
     }
 
     private fun fontIndex(value: String): Int {
@@ -267,6 +376,79 @@ class SettingsActivity : AppCompatActivity() {
     private fun foldIndex(value: String): Int {
         val idx = resources.getStringArray(R.array.fold_option_values).indexOf(value)
         return if (idx >= 0) idx else 0
+    }
+
+    private fun controlPanelOrientationIndex(value: String): Int {
+        val idx = resources.getStringArray(R.array.control_panel_orientation_values).indexOf(value)
+        return if (idx >= 0) idx else 0
+    }
+
+    /** Update the "Saving to: ..." label, also verifies the persisted permission is still valid. */
+    private fun refreshSaveFolderLabel() {
+        val uriStr = preferencesManager.saveFolderUri
+        if (uriStr.isEmpty()) {
+            binding.textSaveFolderCurrent.text = getString(R.string.save_folder_none)
+            return
+        }
+        val uri = Uri.parse(uriStr)
+        // Confirm we still hold the persisted permission (user may have revoked it via system UI).
+        val stillGranted = contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
+        if (!stillGranted) {
+            binding.textSaveFolderCurrent.text = getString(R.string.save_folder_unset)
+            preferencesManager.saveFolderUri = ""
+        } else {
+            val display = Uri.decode(uri.lastPathSegment ?: uriStr)
+            binding.textSaveFolderCurrent.text = getString(R.string.save_folder_current, display)
+        }
+    }
+
+    private fun refreshCustomFontLabel() {
+        val path = preferencesManager.customFontPath
+        if (path.isEmpty()) {
+            binding.textCustomFontCurrent.text = getString(R.string.custom_font_none)
+        } else {
+            val name = File(path).name
+            binding.textCustomFontCurrent.text = getString(R.string.custom_font_current, name)
+        }
+    }
+
+    /**
+     * Copy the picked font file into filesDir so its path is stable across reboots. Returns false
+     * if the input stream couldn't be opened or the file isn't a valid typeface.
+     */
+    private suspend fun copyFontToFilesDir(srcUri: Uri): Boolean = withContext(Dispatchers.IO) {
+        val dest = File(filesDir, CUSTOM_FONT_FILENAME)
+        try {
+            contentResolver.openInputStream(srcUri)?.use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            } ?: return@withContext false
+
+            // Validate by trying to load it; createFromFile throws RuntimeException for non-fonts.
+            try {
+                android.graphics.Typeface.createFromFile(dest)
+            } catch (e: Exception) {
+                Log.w(TAG, "Picked file isn't a valid typeface", e)
+                dest.delete()
+                return@withContext false
+            }
+            preferencesManager.customFontPath = dest.absolutePath
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "copyFontToFilesDir failed", e)
+            dest.delete()
+            false
+        }
+    }
+
+    private fun clearCustomFont() {
+        val path = preferencesManager.customFontPath
+        if (path.isNotEmpty()) {
+            try { File(path).delete() } catch (_: Exception) {}
+            preferencesManager.customFontPath = ""
+        }
+        refreshCustomFontLabel()
+        Toast.makeText(this, R.string.custom_font_cleared, Toast.LENGTH_SHORT).show()
+        updateActiveServices()
     }
 
     private fun getLanguagePosition(languageCode: String, isTarget: Boolean = false): Int {
@@ -332,6 +514,19 @@ class SettingsActivity : AppCompatActivity() {
         preferencesManager.useAccessibility = binding.switchUseAccessibility.isChecked
         preferencesManager.translationFont =
             resources.getStringArray(R.array.font_values)[binding.spinnerFont.selectedItemPosition]
+
+        // Control panel styling
+        preferencesManager.controlPanelOrientation =
+            resources.getStringArray(R.array.control_panel_orientation_values)[
+                binding.spinnerControlPanelOrientation.selectedItemPosition
+            ]
+        preferencesManager.controlPanelBgColor = android.graphics.Color.parseColor(
+            colorValues[binding.spinnerControlPanelBgColor.selectedItemPosition]
+        )
+        preferencesManager.controlPanelOpacity = binding.sliderControlPanelOpacity.value
+
+        // Save-to-file: the folder URI is set by the picker callback; only the enable switch is here.
+        preferencesManager.saveToFileEnabled = binding.switchSaveToFile.isChecked
 
         // Cache settings
         preferencesManager.maxCacheEntries = binding.sliderMaxCache.value.toInt()

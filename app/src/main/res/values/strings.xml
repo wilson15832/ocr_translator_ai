@@ -114,4 +114,30 @@
     <string name="area_cleared">Using full screen for translation</string>
     <string name="area_deleted">Area deleted</string>
 
+    <!-- Round 4: control panel styling -->
+    <string name="control_panel_expand">Expand</string>
+    <string name="control_panel_section">Control panel</string>
+    <string name="control_panel_orientation">Orientation</string>
+    <string name="control_panel_background_color">Panel background color</string>
+    <string name="control_panel_opacity">Panel opacity</string>
+
+    <!-- Round 4: save translations to file -->
+    <string name="save_to_file_section">Save translations to file</string>
+    <string name="save_to_file_enabled">Save translations to a text file</string>
+    <string name="save_to_file_hint">Each session creates one .txt file in the chosen folder. Original lines and translations are appended as they appear.</string>
+    <string name="save_folder_choose">Choose folder</string>
+    <string name="save_folder_none">No folder selected</string>
+    <string name="save_folder_current">Saving to: %1$s</string>
+    <string name="save_folder_unset">Folder access lost — please pick again</string>
+
+    <!-- Round 4: custom font -->
+    <string name="custom_font_section">Custom font</string>
+    <string name="custom_font_load">Load custom font (.ttf / .otf)</string>
+    <string name="custom_font_clear">Clear custom font</string>
+    <string name="custom_font_current">Custom font: %1$s</string>
+    <string name="custom_font_none">No custom font loaded</string>
+    <string name="custom_font_load_failed">Couldn\'t load that font file</string>
+    <string name="custom_font_loaded">Custom font loaded</string>
+    <string name="custom_font_cleared">Custom font cleared</string>
+
 </resources>
