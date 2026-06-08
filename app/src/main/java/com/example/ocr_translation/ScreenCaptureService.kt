@@ -74,19 +74,37 @@ class ScreenCaptureService : Service() {
     // that finds unchanged text can restore the box without re-translating (no flicker, no API call).
     private var lastShownResults: List<TranslationService.TranslatedBlock> = emptyList()
     private var shownOcrSig = ""
+    // Tap-triggered scanning state: after the user taps, the screen often keeps showing the OLD
+    // text for a couple of seconds (e.g. FGO's ~3s post-choice load). During that window we must
+    // NOT restore the previous translation from cache (it's stale to the user's choice) and must
+    // NOT retranslate the identical text (would just re-display the same stale box). We wait for
+    // the text to genuinely differ from [shownOcrSig], or for [postTapDeadline] to pass.
+    @Volatile private var lastShownIsStale = false
+    private var postTapDeadline = 0L
     @Volatile private var translationStartSession = 0
 
     companion object {
         private const val FOREGROUND_NOTIFICATION_ID = 1003 // 通知 ID，不能和 OverlayService 冲突
         private const val CAPTURE_CHANNEL_ID = "screen_capture_channel"
         private const val STABLE_FRAMES = 2          // consecutive stable scans before translating (merged)
-        private const val STABLE_TEXT_MS = 500L      // in-place: OCR text must hold this long before translating
+        private const val STABLE_TEXT_MS = 400L      // in-place: OCR text must hold this long before translating
         private const val STEADY_CHANGE_RATIO = 0.30 // in-place: frame delta that counts as a real change.
         // High enough that background animation (games) is
         // ignored; taps re-scan instantly regardless.
         private const val STEADY_GRACE_MS = 1000L    // in-place: after showing the box, ignore frame-diff
         // re-scans this long (only a tap re-scans) so the box's
         // own pixels / brief animations don't cause flicker
+
+        // While we're hunting for stable text (in-place scanning state), poll fast — we only OCR,
+        // not call the LLM. Tightens "dialog appears -> translation shows" by ~700ms vs the user's
+        // captureInterval (which is meant for steady-state translation cadence).
+        private const val SCAN_POLL_MS = 250L
+        // After a user tap, the on-screen text may still be the OLD dialog for up to a few seconds
+        // (FGO has a ~3s gap before the new dialog appears). During this window we refuse to
+        // restore the previously-shown translation from cache, and refuse to re-translate the
+        // identical text — we wait for genuinely-new text. If the deadline passes with no change,
+        // we fall back to translating whatever is there (cache hit will make this near-free).
+        private const val POST_TAP_WAIT_MS = 4000L
 
         // Translation mode, shared with the floating controls.
         // false = manual (default): translate only when requestManualTranslation() is called.
@@ -572,7 +590,17 @@ class ScreenCaptureService : Service() {
                     Log.e("ScreenCaptureService", "Capture cycle failed", e)
                     kotlinx.coroutines.delay(1000)
                 }
-                kotlinx.coroutines.delay(if (autoMode) captureInterval else 150L)
+                // While in-place scanning, poll fast (we only OCR, no LLM call) so we catch a new
+                // dialog with minimal lag. Steady state and merged mode use the user's captureInterval.
+                val inPlaceScan = autoMode &&
+                        PreferencesManager.getInstance(this@ScreenCaptureService).inPlaceMode &&
+                        inPlaceScanning
+                val nextDelay = when {
+                    !autoMode -> 150L
+                    inPlaceScan -> SCAN_POLL_MS
+                    else -> captureInterval
+                }
+                kotlinx.coroutines.delay(nextDelay)
             }
         }
         Log.d("ScreenCaptureService", "Periodic capture loop exited.") // <-- 日志12
@@ -639,36 +667,29 @@ class ScreenCaptureService : Service() {
         val prefs = PreferencesManager.getInstance(this)
         if (inPlaceScanning) {
             val frame = captureScreen() ?: return
-            val sig = pipeline.ocrSignature(frame, activeTranslationArea, prefs.sourceLanguage)
+            // OCR-and-hold: keeps the cropped bitmap alive so if we proceed to translation we can
+            // sample background colours and avoid a second captureScreen + OCR pass.
+            val snap = pipeline.ocrFrame(frame, activeTranslationArea, prefs.sourceLanguage) ?: return
+            val sig = snap.sig
             val now = android.os.SystemClock.elapsedRealtime()
-            when {
-                sig.isEmpty() -> { lastScanSig = ""; scanStableSince = now }
-                textSimilar(sig, lastScanSig) -> {
-                    if (now - scanStableSince >= STABLE_TEXT_MS) {
-                        if (shownOcrSig.isNotEmpty() && lastShownResults.isNotEmpty() &&
-                            textSimilar(sig, shownOcrSig)
-                        ) {
-                            // Same text as the box we last showed (steady was re-armed by background
-                            // animation, not a real change). Restore the cached box — no re-translate.
-                            OverlayService.showTranslation(lastShownResults)
-                            consumeUserInput()
-                            enterSteady()
-                        } else {
-                            captureScreen()?.let { processScreenCapture(it, force = true) }
-                            if (consumeUserInput()) {
-                                // A tap landed during the translation, so its result was dropped to
-                                // avoid covering new text. Stay scanning and re-read the current
-                                // screen instead of going steady with an empty box (strand).
-                                enterScanning()
-                            } else {
-                                shownOcrSig = sig
-                                enterSteady()
-                            }
-                        }
-                    }
+            val handled: Boolean = when {
+                sig.isEmpty() -> {
+                    lastScanSig = ""
+                    scanStableSince = now
+                    false
                 }
-                else -> { lastScanSig = sig; scanStableSince = now }
+                !textSimilar(sig, lastScanSig) -> {
+                    lastScanSig = sig
+                    scanStableSince = now
+                    false
+                }
+                now - scanStableSince < STABLE_TEXT_MS -> false
+                else -> {
+                    handleStableScan(snap, sig, now, prefs)
+                    true
+                }
             }
+            if (!handled) snap.recycle()
         } else {
             // Steady: the box is shown. A tap re-scans immediately. Otherwise, after a grace window,
             // a big frame change triggers a *peek* rather than a full clear: hide the box for one
@@ -679,7 +700,7 @@ class ScreenCaptureService : Service() {
             frame.recycle()
             val now = android.os.SystemClock.elapsedRealtime()
             when {
-                consumeUserInput() -> enterScanning()            // a tap always re-scans immediately
+                consumeUserInput() -> enterScanning(fromTap = true)
                 now - steadyEnteredAt < STEADY_GRACE_MS -> {
                     lastFingerprint = fp                         // keep baselining (box now rendered)
                 }
@@ -692,6 +713,67 @@ class ScreenCaptureService : Service() {
                         steadyEnteredAt = android.os.SystemClock.elapsedRealtime()
                         lastFingerprint = null
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * The scanning state has held the same OCR text for [STABLE_TEXT_MS]. Decide whether to:
+     *   - restore the previously-shown translation from cache (text unchanged, no tap pending),
+     *   - keep waiting (post-tap window, text hasn't actually changed yet — wait for new dialog),
+     *   - translate fresh (any other case).
+     *
+     * On entry, [snap] is owned by this function: either consumed by translateSnapshot or recycled.
+     * Returns nothing — but the caller relies on us to never leak [snap].
+     */
+    private suspend fun handleStableScan(
+        snap: TranslationPipeline.OcrSnapshot,
+        sig: String,
+        now: Long,
+        prefs: PreferencesManager
+    ) {
+        val sameAsPreviouslyShown = shownOcrSig.isNotEmpty() &&
+                lastShownResults.isNotEmpty() &&
+                textSimilar(sig, shownOcrSig)
+
+        when {
+            // Post-tap and the screen still shows the old text: hold off. The user explicitly
+            // changed something; either the dialog is mid-transition (FGO loads ~3s) or the tap
+            // didn't change anything. We don't restore (the old translation is now stale) and we
+            // don't re-translate the same string (would just flash the same box back).
+            lastShownIsStale && sameAsPreviouslyShown && now < postTapDeadline -> {
+                Log.d(TAG, "post-tap wait: text unchanged, holding scan (${postTapDeadline - now}ms left)")
+                snap.recycle()
+            }
+            // Outside the post-tap window (or no tap pending), and text matches what we previously
+            // showed: this is the "background animation made us re-scan but the text really is
+            // the same" case — fast-restore the cached box.
+            sameAsPreviouslyShown && !lastShownIsStale -> {
+                OverlayService.showTranslation(lastShownResults)
+                consumeUserInput()
+                snap.recycle()
+                enterSteady()
+            }
+            // Either text actually changed, or we ran out the post-tap deadline. Translate fresh,
+            // reusing the OCR we already did on [snap] — no second captureScreen, no second OCR.
+            else -> {
+                translationStartSession = sessionId
+                pipeline.translateSnapshot(
+                    snap = snap,                       // snap is consumed (recycled) inside
+                    sourceLanguage = prefs.sourceLanguage,
+                    targetLanguage = prefs.targetLanguage,
+                    force = true
+                )
+                if (consumeUserInput()) {
+                    // A tap landed during the translation, so its result was dropped to avoid
+                    // covering new text. Stay scanning and re-read the current screen instead of
+                    // going steady with an empty box (strand).
+                    enterScanning(fromTap = true)
+                } else {
+                    shownOcrSig = sig
+                    lastShownIsStale = false
+                    enterSteady()
                 }
             }
         }
@@ -712,10 +794,20 @@ class ScreenCaptureService : Service() {
     }
 
     // Hide the box and start a fresh scan of the original text.
-    private fun enterScanning() {
+    // [fromTap] is true when the user just tapped (the previously-shown translation is now stale
+    // because the user explicitly changed something). Arms the post-tap window so the scanning
+    // logic waits for genuinely-new text instead of restoring the cached box (which would re-show
+    // the old translation while the screen is still mid-transition — e.g. FGO's ~3s post-choice load).
+    private fun enterScanning(fromTap: Boolean = false) {
         inPlaceScanning = true
         lastScanSig = ""
-        scanStableSince = android.os.SystemClock.elapsedRealtime()
+        val now = android.os.SystemClock.elapsedRealtime()
+        scanStableSince = now
+        if (fromTap) {
+            lastShownIsStale = true
+            postTapDeadline = now + POST_TAP_WAIT_MS
+            Log.d(TAG, "enterScanning(fromTap=true): stale flag armed, deadline +${POST_TAP_WAIT_MS}ms")
+        }
         OverlayService.showTranslation(emptyList())   // clear box, reveal original to re-read
     }
 

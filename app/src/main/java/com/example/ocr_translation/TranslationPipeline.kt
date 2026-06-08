@@ -18,6 +18,31 @@ class TranslationPipeline(
     private val onResult: (List<TranslationService.TranslatedBlock>) -> Unit
 ) {
 
+    /**
+     * Result of [ocrFrame] — keeps the cropped bitmap alive so the caller can later pass it to
+     * [translateSnapshot] for background-colour sampling. Caller MUST invoke [recycle] exactly once,
+     * either implicitly via [translateSnapshot] or explicitly when the snapshot is no longer needed.
+     */
+    class OcrSnapshot internal constructor(
+        val sig: String,
+        val blocks: List<OCRProcessor.TextBlock>,
+        internal val cropped: Bitmap?,
+        internal val frame: Bitmap?,
+        internal val areaDx: Int,
+        internal val areaDy: Int
+    ) {
+        @Volatile private var released = false
+
+        fun recycle() {
+            if (released) return
+            released = true
+            cropped?.let { if (it !== frame && !it.isRecycled) try { it.recycle() } catch (_: Exception) {} }
+            frame?.let { if (!it.isRecycled) try { it.recycle() } catch (_: Exception) {} }
+        }
+
+        internal fun consumed() { released = true }
+    }
+
     suspend fun process(
         frame: Bitmap,
         area: RectF?,
@@ -25,13 +50,54 @@ class TranslationPipeline(
         targetLanguage: String,
         force: Boolean = false
     ) {
-        var cropped: Bitmap? = null
-        try {
+        val snap = ocrFrame(frame, area, sourceLanguage) ?: return
+        translateSnapshot(snap, sourceLanguage, targetLanguage, force)
+    }
+
+    /**
+     * Capture-and-OCR step: crops [frame] to [area], runs OCR, and returns an [OcrSnapshot] that
+     * the caller can either inspect (e.g. for stability detection) and discard via [OcrSnapshot.recycle],
+     * or pass on to [translateSnapshot] which will reuse the same OCR result and recycle the bitmaps.
+     *
+     * Returns null if the frame is invalid; in that case [frame] has already been recycled.
+     */
+    suspend fun ocrFrame(
+        frame: Bitmap,
+        area: RectF?,
+        sourceLanguage: String
+    ): OcrSnapshot? {
+        return try {
             OCRProcessor.setLanguage(sourceLanguage)
-            cropped = if (area != null) (cropToArea(frame, area) ?: frame) else frame
-
+            val cropped = if (area != null) (cropToArea(frame, area) ?: frame) else frame
             val blocks = OCRProcessor.recognize(cropped)
+            val sig = blocks.joinToString("|") { it.text }.lowercase().replace("\\s+".toRegex(), "")
+            OcrSnapshot(
+                sig = sig,
+                blocks = blocks,
+                cropped = cropped,
+                frame = frame,
+                areaDx = area?.left?.toInt() ?: 0,
+                areaDy = area?.top?.toInt() ?: 0
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "ocrFrame failed", e)
+            recycle(frame)
+            null
+        }
+    }
 
+    /**
+     * Translate step that consumes an [OcrSnapshot] from [ocrFrame] — does NOT re-capture or re-OCR.
+     * Always recycles the snapshot's bitmaps before returning.
+     */
+    suspend fun translateSnapshot(
+        snap: OcrSnapshot,
+        sourceLanguage: String,
+        targetLanguage: String,
+        force: Boolean
+    ) {
+        try {
+            val blocks = snap.blocks
             if (blocks.isEmpty()) {
                 changeDetector.reset()
                 onResult(emptyList())
@@ -44,20 +110,18 @@ class TranslationPipeline(
             }
 
             val results = translator.translateText(blocks, sourceLanguage, targetLanguage)
-            // Sample each block's original background colour (for in-place mode) and, when a crop
-            // area is active, offset positions to absolute screen coords.
-            val bmp = cropped ?: frame
-            val dx = area?.left?.toInt() ?: 0
-            val dy = area?.top?.toInt() ?: 0
+            val bmp = snap.cropped ?: snap.frame
+            val dx = snap.areaDx
+            val dy = snap.areaDy
             val finalResults = results.map { block ->
-                val bg = sampleBackgroundColor(bmp, block.boundingBox)
+                val bg = if (bmp != null && !bmp.isRecycled) sampleBackgroundColor(bmp, block.boundingBox) else 0
                 val screenRect = Rect(block.boundingBox).apply { offset(dx, dy) }
                 block.copy(boundingBox = screenRect, bgColor = bg)
             }
-            Log.d(TAG, "process: area=$area blocks=${finalResults.size} firstRect=${finalResults.firstOrNull()?.boundingBox}")
+            Log.d(TAG, "translateSnapshot: blocks=${finalResults.size} firstRect=${finalResults.firstOrNull()?.boundingBox}")
             onResult(finalResults)
         } catch (e: Exception) {
-            Log.e(TAG, "Pipeline failed", e)
+            Log.e(TAG, "translateSnapshot failed", e)
             onResult(
                 listOf(
                     TranslationService.TranslatedBlock(
@@ -70,8 +134,7 @@ class TranslationPipeline(
                 )
             )
         } finally {
-            if (cropped != null && cropped != frame) recycle(cropped)
-            recycle(frame)
+            snap.recycle()
         }
     }
 
