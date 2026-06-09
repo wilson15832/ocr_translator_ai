@@ -210,8 +210,8 @@ sequenceDiagram
         SCS->>SCS: captureScreen() → Bitmap
         SCS->>TP: ocrSignature(frame, area)
         TP->>OCR: recognize(cropped)
+        OCR-->>TP: List&lt;TextBlock
         TP-->>SCS: signature string
-        OCR-->>TP: List&lt;TextBlock&gt;
 
         alt signature 未变
             SCS-->>Loop: continue (stay in steady)
