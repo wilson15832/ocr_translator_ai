@@ -210,7 +210,7 @@ sequenceDiagram
         SCS->>SCS: captureScreen() → Bitmap
         SCS->>TP: ocrSignature(frame, area)
         TP->>OCR: recognize(cropped)
-        OCR-->>TP: List&lt;TextBlock
+        OCR-->>TP: List&lt;TextBlock&gt;
         TP-->>SCS: signature string
 
         alt signature 未变
