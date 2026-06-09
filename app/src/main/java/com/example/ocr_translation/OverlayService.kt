@@ -213,6 +213,8 @@ class OverlayService : Service() {
             }
             translationData.postValue(translations)
         }
+
+        fun clearShownTranslation() { instance?.clearShownTranslationImpl() }
     }
 
     private val settingsReceiver = object : BroadcastReceiver() {
@@ -418,6 +420,19 @@ class OverlayService : Service() {
         val alpha = (255f * prefs.controlPanelOpacity.coerceIn(0f, 1f)).toInt()
         val combined = (alpha shl 24) or baseRgb
         (controlPanel as? CardView)?.setCardBackgroundColor(combined)
+    }
+
+    private fun clearShownTranslationImpl() {
+        captureHideHandler.post {
+            if (::translationOverlay.isInitialized) {
+                translationOverlay.removeAllViews()
+                translationOverlay.visibility = View.GONE
+            }
+            if (::inPlaceOverlay.isInitialized) {
+                inPlaceOverlay.removeAllViews()
+                inPlaceOverlay.visibility = View.GONE
+            }
+        }
     }
 
     private fun setupControlPanelButtons() {
@@ -843,8 +858,19 @@ class OverlayService : Service() {
         val loc = IntArray(2)
         inPlaceOverlay.getLocationOnScreen(loc)
         Log.d(TAG, "inPlaceOverlay loc=(${loc[0]},${loc[1]}) size=${inPlaceOverlay.width}x${inPlaceOverlay.height}")
+        val screenW = if (inPlaceOverlay.width > 0) inPlaceOverlay.width
+        else resources.displayMetrics.widthPixels
+
         for (t in translations) {
             val rect = t.boundingBox
+
+            // 把 box 宽度放大到原文 bounding box 的 1.5 倍，给较长的译文留排版空间
+            val origW = rect.width()
+            // 原文窄 → 给 1.5× 让长译文舒展；原文已经很宽 → 只放 1.1×，避免撞屏幕右沿后被钳回去
+            val factor = if (origW < screenW * 0.5f) 1.5f else 1.1f
+            val expandedW = (origW * factor).toInt()
+            val boxWidth = expandedW + 8  // +8 是原来的 padding 余量
+
             val tv = TextView(this).apply {
                 text = t.translatedText
                 setTextColor(prefs.translationTextColor)
@@ -852,30 +878,34 @@ class OverlayService : Service() {
                 textSize = 14f * textSizeMultiplier
                 setPadding(12, 6, 12, 6)
                 background = if (t.bgColor != 0) {
-                    // Match the original text's background so it looks like a replacement
                     android.graphics.drawable.GradientDrawable().apply {
                         cornerRadius = 8f
                         setColor(t.bgColor or 0xFF000000.toInt())
                     }
                 } else {
-                    // Opaque fallback so the box fully covers the original text
                     android.graphics.drawable.GradientDrawable().apply {
                         cornerRadius = 8f
                         setColor(prefs.translationBgColor or 0xFF000000.toInt())
                     }
                 }
-                minWidth = rect.width() + 8
+                minWidth = boxWidth
                 minHeight = rect.height() + 8
                 gravity = Gravity.CENTER_VERTICAL
             }
-            Log.d(TAG, "in-place block: rect=$rect overlay=${inPlaceOverlay.width}x${inPlaceOverlay.height}")
+
+            // 默认左边对齐原文左沿（往右扩 0.5×），如果右沿会超出屏幕则整体往左移
+            var leftAbs = (rect.left - loc[0] - 4)
+            if (leftAbs + boxWidth > screenW) {
+                leftAbs = screenW - boxWidth
+            }
+            leftAbs = leftAbs.coerceAtLeast(0)
+
+            Log.d(TAG, "in-place block: rect=$rect boxW=$boxWidth overlay=${inPlaceOverlay.width}x${inPlaceOverlay.height}")
             val lp = FrameLayout.LayoutParams(
-                rect.width() + 8,
+                boxWidth,
                 FrameLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                // Subtract the overlay window's own screen offset so boxes land on absolute
-                // screen coords even if the window doesn't start at (0,0).
-                leftMargin = (rect.left - loc[0] - 4).coerceAtLeast(0)
+                leftMargin = leftAbs
                 topMargin = (rect.top - loc[1] - 4).coerceAtLeast(0)
             }
             inPlaceOverlay.addView(tv, lp)

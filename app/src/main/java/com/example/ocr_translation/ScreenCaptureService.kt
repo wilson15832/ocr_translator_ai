@@ -664,60 +664,61 @@ class ScreenCaptureService : Service() {
             return
         }
 
-        // Capture a single clean frame for everything that follows. Hide our box first when
-        // running in-place mode so the captured pixels match the pre-box frame whose fingerprint
-        // we recorded at translation time (otherwise the box pixels would dominate the diff).
-        val needHide = prefs.inPlaceMode && lastShownResults.isNotEmpty()
-        if (needHide) {
-            OverlayService.hideForCapture()
+        val hadShown = lastShownResults.isNotEmpty()
+        if (hadShown) {
+            OverlayService.clearShownTranslation()   // 直接清空旧 box（GONE + removeAllViews）
+            lastShownResults = emptyList()
             kotlinx.coroutines.delay(120)
         }
         val frame = captureScreen()
-        if (needHide) OverlayService.showAfterCapture()
+        if (frame == null) {
+            Log.w(TAG, "Manual: captureScreen returned null")
+            return
+        }
 
         if (frame == null) {
             Log.w(TAG, "Manual: captureScreen returned null")
             return
         }
 
-        val nowFp = fingerprint(frame)
-        val baseFp = lastOcrFingerprint
-        val unchanged = kind == ManualKind.AUTO &&
+        pendingOcrFingerprint = fingerprint(frame)
+
+        // 总是 OCR，然后用文字内容做"同/异"判断 —— 比像素指纹可靠得多
+        val snap = pipeline.ocrFrame(frame, activeTranslationArea, prefs.sourceLanguage)
+        if (snap == null) {
+            enterSteady()
+            return
+        }
+
+        val newText = snap.blocks.joinToString("\n") { it.text.trim() }
+        val oldText = lastShownResults.joinToString("\n") { it.originalText.trim() }
+        val sameAsLast = kind == ManualKind.AUTO &&
                 lastShownResults.isNotEmpty() &&
-                baseFp != null &&
-                fingerprintsSimilar(nowFp, baseFp)
+                newText.isNotEmpty() &&
+                newText == oldText
 
-        // Either path will fire onResult, which promotes pendingOcrFingerprint → lastOcrFingerprint
-        // so the next manual press can compare against this state.
-        pendingOcrFingerprint = nowFp
-
-        if (unchanged) {
-            Log.d(TAG, "Manual re-translate: screen unchanged → skip OCR, bypass LLM cache")
-            val blocks = lastShownResults.map {
-                OCRProcessor.TextBlock(text = it.originalText, boundingBox = it.boundingBox)
-            }
-            translationStartSession = sessionId
+        translationStartSession = sessionId
+        if (sameAsLast) {
+            Log.d(TAG, "Manual: OCR text identical → bypass LLM cache, retry translation")
+            // 用刚 OCR 出的新 blocks（位置可能微调），bypassCache 强制 LLM 重译
+            val blocks = snap.blocks
+            // snap 不再用了，回收里面的 bitmap（如果 pipeline 没自动回收的话按你现有 API 处理）
             pipeline.processBlocks(
                 blocks = blocks,
                 sourceLanguage = prefs.sourceLanguage,
                 targetLanguage = prefs.targetLanguage,
                 force = true,
-                sampleFrame = frame,    // recycled inside processBlocks
+                sampleFrame = frame,
                 bypassCache = true
             )
         } else {
-            Log.d(TAG, "Manual: ${if (kind == ManualKind.FORCE_OCR) "FORCE_OCR" else "content changed"} → full OCR + translate")
-            val snap = pipeline.ocrFrame(frame, activeTranslationArea, prefs.sourceLanguage)
-            if (snap != null) {
-                translationStartSession = sessionId
-                pipeline.translateSnapshot(
-                    snap = snap,    // recycled inside translateSnapshot
-                    sourceLanguage = prefs.sourceLanguage,
-                    targetLanguage = prefs.targetLanguage,
-                    force = true
-                )
-            }
-            // If ocrFrame returned null it already recycled frame; nothing else to do.
+            Log.d(TAG, "Manual: ${if (kind == ManualKind.FORCE_OCR) "FORCE_OCR" else "content changed"} → translate")
+            pipeline.translateSnapshot(
+                snap = snap,
+                sourceLanguage = prefs.sourceLanguage,
+                targetLanguage = prefs.targetLanguage,
+                force = true
+            )
         }
         enterSteady()
     }
