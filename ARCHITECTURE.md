@@ -242,7 +242,6 @@ sequenceDiagram
             SCS->>OS: showTranslation(results)
             SCS->>SCS: enterSteady()
         end
-    end
 ```
 
 ---
