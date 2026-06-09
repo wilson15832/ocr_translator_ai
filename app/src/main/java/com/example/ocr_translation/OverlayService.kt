@@ -237,6 +237,8 @@ class OverlayService : Service() {
                 // Control panel styling — applied live so the user sees orientation / colour /
                 // opacity changes immediately without having to toggle the overlay off and on.
                 applyControlPanelStyle()
+                // Font choice may have changed — drop the cache so the next translation re-resolves.
+                cachedTypeface = null
             }
         }
     }
@@ -373,9 +375,9 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,  // Keep this flag
                 PixelFormat.TRANSLUCENT
             ).apply {
-                // First launch: place against the top-right edge as before. Once the user drags the
-                // panel anywhere, [setupControlPanelDrag] persists the absolute position and we use
-                // TOP|START on subsequent boots so the saved coords interpret consistently.
+                // First launch: place against the top-right edge as before. Once the user drags
+                // the panel anywhere, setupControlPanelDrag persists the absolute position and we
+                // use TOP|START on subsequent boots so the saved coords interpret consistently.
                 if (savedX == Int.MIN_VALUE || savedY == Int.MIN_VALUE) {
                     gravity = Gravity.TOP or Gravity.END
                     x = 0; y = 100
@@ -385,7 +387,7 @@ class OverlayService : Service() {
                 }
             }
 
-            applyControlPanelStyle()       // orientation + bg color + opacity from prefs
+            applyControlPanelStyle()        // orientation + bg color + opacity from prefs
             setupControlPanelButtons()
             setupControlPanelDrag(controlParams)
 
@@ -436,9 +438,9 @@ class OverlayService : Service() {
             Log.d(TAG, "Auto mode: $enabled")
         }
 
-        // Manual translate — short tap re-translates the current OCR blocks if a translation is
-        // showing (skips OCR, forces a fresh LLM call). Long-press forces a full OCR+translate pass
-        // (use this if the screen content actually changed since the last translation).
+        // Manual translate — short tap re-translates cached OCR blocks if a translation is showing
+        // (skips OCR, forces a fresh LLM call). Long-press forces a full OCR+translate (use when
+        // the screen content has actually changed since the last translation).
         val btnTranslate = controlPanel.findViewById<View>(R.id.btnTranslateNow)
         btnTranslate.setOnClickListener {
             Log.d(TAG, "Manual translate (AUTO) requested")
@@ -490,7 +492,6 @@ class OverlayService : Service() {
             // Fold button stays visible so the user can expand again with a single tap.
             fold?.visibility = View.VISIBLE
             fold?.setImageResource(R.drawable.ic_expand)
-            fold?.contentDescription = getString(R.string.control_panel_expand)
         } else {
             auto.visibility = View.VISIBLE
             translate.visibility = View.VISIBLE
@@ -498,7 +499,6 @@ class OverlayService : Service() {
             close.visibility = View.VISIBLE
             fold?.visibility = View.VISIBLE
             fold?.setImageResource(R.drawable.ic_collapse)
-            fold?.contentDescription = getString(R.string.control_panel_collapse)
         }
         Log.d(TAG, "Control panel folded=$controlPanelFolded")
     }
@@ -609,55 +609,44 @@ class OverlayService : Service() {
     }
 
     private fun setupControlPanelDrag(params: WindowManager.LayoutParams) {
-        var initialX: Int = 0
-        var initialY: Int = 0
-        var initialTouchX: Float = 0f
-        var initialTouchY: Float = 0f
-        var dragged = false
+        // Drag is owned by GestureControlPanel: it watches touch slop and only intercepts when
+        // the user actually starts dragging (so button taps still work). We get three callbacks —
+        // start (where the down landed), move (cumulative delta), end. We translate them into
+        // WindowManager.LayoutParams updates and persist the final position on release.
+        val panel = controlPanel as? GestureControlPanel ?: return
+        var initialX = 0
+        var initialY = 0
 
-        controlPanel.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    dragged = false
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - initialTouchX).toInt()
-                    val dy = (event.rawY - initialTouchY).toInt()
-                    if (!dragged && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-                        // First drag from the corner-anchored initial layout: switch to absolute
-                        // TOP|START so the saved coordinates make sense across sessions.
-                        if (params.gravity != (Gravity.TOP or Gravity.START)) {
-                            // Snapshot the *current on-screen* position before switching gravity,
-                            // otherwise the panel would jump when the anchor flips.
-                            val loc = IntArray(2)
-                            controlPanel.getLocationOnScreen(loc)
-                            params.gravity = Gravity.TOP or Gravity.START
-                            initialX = loc[0]
-                            initialY = loc[1]
-                        }
-                        dragged = true
-                    }
-                    params.x = initialX + dx
-                    params.y = initialY + dy
-                    windowManager.updateViewLayout(controlPanel, params)
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (dragged) {
-                        val prefs = PreferencesManager.getInstance(this)
-                        prefs.controlPanelX = params.x
-                        prefs.controlPanelY = params.y
-                        Log.d(TAG, "Control panel position saved: x=${params.x}, y=${params.y}")
-                    }
-                    false
-                }
-                else -> false
+        panel.onDragStart = { _, _ ->
+            // First drag from the corner-anchored initial layout: switch to absolute TOP|START so
+            // the saved coordinates make sense across sessions. Snapshot the current on-screen
+            // position before flipping the anchor, otherwise the panel would jump.
+            if (params.gravity != (Gravity.TOP or Gravity.START)) {
+                val loc = IntArray(2)
+                controlPanel.getLocationOnScreen(loc)
+                params.gravity = Gravity.TOP or Gravity.START
+                params.x = loc[0]
+                params.y = loc[1]
             }
+            initialX = params.x
+            initialY = params.y
+        }
+
+        panel.onDragMove = { dx, dy ->
+            params.x = initialX + dx.toInt()
+            params.y = initialY + dy.toInt()
+            try {
+                windowManager.updateViewLayout(controlPanel, params)
+            } catch (e: Exception) {
+                Log.w(TAG, "updateViewLayout during drag failed", e)
+            }
+        }
+
+        panel.onDragEnd = {
+            val prefs = PreferencesManager.getInstance(this)
+            prefs.controlPanelX = params.x
+            prefs.controlPanelY = params.y
+            Log.d(TAG, "Control panel position saved: x=${params.x}, y=${params.y}")
         }
     }
 
@@ -1394,7 +1383,12 @@ class OverlayService : Service() {
         }
     }
 
+    // Caches the user's selected typeface so we don't re-resolve it (and possibly re-parse a TTF
+    // file) for every TextView we create. Invalidated when settings change — see settingsReceiver.
+    @Volatile private var cachedTypeface: android.graphics.Typeface? = null
+
     private fun resultTypeface(): android.graphics.Typeface {
+        cachedTypeface?.let { return it }
         val prefs = PreferencesManager.getInstance(this)
         // 1) User-loaded font wins if the file is still present (the user may have cleared/replaced
         //    it through settings; we tolerate stale paths by falling back to the spinner choice).
@@ -1403,7 +1397,9 @@ class OverlayService : Service() {
             try {
                 val f = java.io.File(customPath)
                 if (f.exists() && f.canRead()) {
-                    return android.graphics.Typeface.createFromFile(f)
+                    val tf = android.graphics.Typeface.createFromFile(f)
+                    cachedTypeface = tf
+                    return tf
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Custom font load failed; falling back", e)
@@ -1412,13 +1408,15 @@ class OverlayService : Service() {
         // 2) Bundled .ttf in res/font/<name>.ttf
         val name = prefs.translationFont
         val resId = resources.getIdentifier(name, "font", packageName)
-        return if (resId != 0) {
+        val tf = if (resId != 0) {
             androidx.core.content.res.ResourcesCompat.getFont(this, resId)
                 ?: android.graphics.Typeface.DEFAULT
         } else {
             // 3) System family name fallback (e.g. "sans-serif", "monospace")
             android.graphics.Typeface.create(name, android.graphics.Typeface.NORMAL)
         }
+        cachedTypeface = tf
+        return tf
     }
 
     // Rounded background for the translation result, using the configured colour + opacity

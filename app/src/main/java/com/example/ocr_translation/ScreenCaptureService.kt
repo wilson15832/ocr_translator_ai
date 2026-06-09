@@ -88,6 +88,17 @@ class ScreenCaptureService : Service() {
     private var postTapDeadline = 0L
     @Volatile private var translationStartSession = 0
 
+    // Fingerprint of the original (pre-box) frame that produced the currently-shown translation.
+    // Used by handleManualRequest to detect — at ~10ms cost vs ~200ms for a full OCR — whether the
+    // screen content has changed since the last translation. If unchanged, we skip OCR and re-feed
+    // the cached blocks to the LLM (bypassCache=true gives a fresh result); if changed, we OCR the
+    // freshly-captured frame and translate that.
+    //
+    // [pendingOcrFingerprint] is set by each translation entry point (handleStableScan,
+    // processScreenCapture, accessibilityTranslate) right before the pipeline call. The pipeline's
+    // onResult callback promotes it to [lastOcrFingerprint] when the translation actually rendered.
+    @Volatile private var pendingOcrFingerprint: IntArray? = null
+    @Volatile private var lastOcrFingerprint: IntArray? = null
     enum class ManualKind { AUTO, FORCE_OCR }
 
     companion object {
@@ -232,8 +243,16 @@ class ScreenCaptureService : Service() {
                 if (results.isNotEmpty()) lastShownResults = results   // cache for unchanged re-scans
                 OverlayService.showTranslation(results)
                 if (results.isNotEmpty()) appendTranslationsToFile(results)
+                // Promote the fingerprint of the frame that produced this translation. Only when we
+                // actually rendered (results not empty) — otherwise the cache lookup in handleManual
+                // might match the wrong frame.
+                if (results.isNotEmpty()) {
+                    lastOcrFingerprint = pendingOcrFingerprint
+                }
+                pendingOcrFingerprint = null
             } else {
                 Log.d(TAG, "Discarding stale translation — user tapped during it")
+                pendingOcrFingerprint = null
             }
         }
         // Start in manual mode so we don't OCR/translate the app's own UI on launch
@@ -587,10 +606,12 @@ class ScreenCaptureService : Service() {
         serviceScope.launch {
             Log.d("ScreenCaptureService", "Periodic capture loop coroutine started.") // <-- 日志7
             while (isRunning) {
+                // Hoist the prefs read so we only hit SharedPreferences once per iteration; both
+                // the work selection and the next-delay calculation share these values.
+                val prefs = PreferencesManager.getInstance(this@ScreenCaptureService)
+                val inPlace = prefs.inPlaceMode
                 try {
-                    val prefs = PreferencesManager.getInstance(this@ScreenCaptureService)
                     val manual = consumeManualRequest()
-                    val inPlace = prefs.inPlaceMode
                     val useA11y = prefs.useAccessibility && AccessibilityTextService.isConnected()
                     when {
                         manual != null -> handleManualRequest(manual, useA11y, prefs)
@@ -604,12 +625,9 @@ class ScreenCaptureService : Service() {
                 }
                 // While in-place scanning, poll fast (we only OCR, no LLM call) so we catch a new
                 // dialog with minimal lag. Steady state and merged mode use the user's captureInterval.
-                val inPlaceScan = autoMode &&
-                        PreferencesManager.getInstance(this@ScreenCaptureService).inPlaceMode &&
-                        inPlaceScanning
                 val nextDelay = when {
                     !autoMode -> 150L
-                    inPlaceScan -> SCAN_POLL_MS
+                    inPlace && inPlaceScanning -> SCAN_POLL_MS
                     else -> captureInterval
                 }
                 kotlinx.coroutines.delay(nextDelay)
@@ -621,46 +639,101 @@ class ScreenCaptureService : Service() {
     /**
      * Resolve a manual translate request.
      *
-     * AUTO + we already have a translation on screen → skip OCR, re-feed the cached OCR blocks to
-     * the translator with [bypassCache] = true so the LLM produces a fresh (often different) result.
-     * Saves ~300ms of OCR plus the second captureScreen, and lets the user "try again" without
-     * losing the box (no flash to empty + scan).
+     * The user's mental model is "the button does what I want": if the screen is showing the same
+     * dialog as last time, they want a fresh attempt at translating it (LLM is non-deterministic,
+     * the new pass may pick better wording). If the dialog actually changed, they want it
+     * translated now.
      *
-     * FORCE_OCR, or AUTO with no cached blocks → full pipeline (capture, OCR, translate).
+     * We disambiguate cheaply via a frame fingerprint (~10ms) instead of a full OCR (~200ms):
+     *   AUTO + cached blocks exist + fingerprint matches last translation → reuse cached blocks
+     *       with bypassCache=true so the LLM doesn't return the identical cached string.
+     *   FORCE_OCR (long-press) → always full pipeline.
+     *   Anything else → full pipeline (capture, OCR, translate).
+     *
+     * Earlier this method blindly reused cached blocks whenever they existed, which caused the
+     * "manual translate keeps showing the previous translation even after the dialog changed"
+     * bug: feeding old OCR text to the LLM naturally produces (essentially) the old translation.
      */
     private suspend fun handleManualRequest(
         kind: ManualKind,
         useA11y: Boolean,
         prefs: PreferencesManager
     ) {
-        val canReuse = kind == ManualKind.AUTO && lastShownResults.isNotEmpty()
-        if (canReuse) {
-            Log.d(TAG, "Manual re-translate: reusing ${lastShownResults.size} cached blocks (bypassCache)")
-            // lastShownResults already carries absolute screen coordinates and accurate text per block.
+        if (useA11y) {
+            accessibilityTranslate(force = true)
+            return
+        }
+
+        // Capture a single clean frame for everything that follows. Hide our box first when
+        // running in-place mode so the captured pixels match the pre-box frame whose fingerprint
+        // we recorded at translation time (otherwise the box pixels would dominate the diff).
+        val needHide = prefs.inPlaceMode && lastShownResults.isNotEmpty()
+        if (needHide) {
+            OverlayService.hideForCapture()
+            kotlinx.coroutines.delay(120)
+        }
+        val frame = captureScreen()
+        if (needHide) OverlayService.showAfterCapture()
+
+        if (frame == null) {
+            Log.w(TAG, "Manual: captureScreen returned null")
+            return
+        }
+
+        val nowFp = fingerprint(frame)
+        val baseFp = lastOcrFingerprint
+        val unchanged = kind == ManualKind.AUTO &&
+                lastShownResults.isNotEmpty() &&
+                baseFp != null &&
+                fingerprintsSimilar(nowFp, baseFp)
+
+        // Either path will fire onResult, which promotes pendingOcrFingerprint → lastOcrFingerprint
+        // so the next manual press can compare against this state.
+        pendingOcrFingerprint = nowFp
+
+        if (unchanged) {
+            Log.d(TAG, "Manual re-translate: screen unchanged → skip OCR, bypass LLM cache")
             val blocks = lastShownResults.map {
                 OCRProcessor.TextBlock(text = it.originalText, boundingBox = it.boundingBox)
             }
-            // Sample bg colours from a fresh frame so colours adapt if the screen scrolled / dimmed.
-            val sampleFrame = if (prefs.inPlaceMode) captureScreen() else null
             translationStartSession = sessionId
             pipeline.processBlocks(
                 blocks = blocks,
                 sourceLanguage = prefs.sourceLanguage,
                 targetLanguage = prefs.targetLanguage,
                 force = true,
-                sampleFrame = sampleFrame,
+                sampleFrame = frame,    // recycled inside processBlocks
                 bypassCache = true
             )
-            // Stay in current state machine position — don't disturb steady/scanning of the auto loop.
-            return
-        }
-        // Fall through to a full translation pass (with OCR).
-        if (useA11y) {
-            accessibilityTranslate(force = true)
         } else {
-            performTranslation(force = true)
-            enterSteady()
+            Log.d(TAG, "Manual: ${if (kind == ManualKind.FORCE_OCR) "FORCE_OCR" else "content changed"} → full OCR + translate")
+            val snap = pipeline.ocrFrame(frame, activeTranslationArea, prefs.sourceLanguage)
+            if (snap != null) {
+                translationStartSession = sessionId
+                pipeline.translateSnapshot(
+                    snap = snap,    // recycled inside translateSnapshot
+                    sourceLanguage = prefs.sourceLanguage,
+                    targetLanguage = prefs.targetLanguage,
+                    force = true
+                )
+            }
+            // If ocrFrame returned null it already recycled frame; nothing else to do.
         }
+        enterSteady()
+    }
+
+    /** Cheap pre-box frame comparison — much faster than re-OCRing to decide whether to translate. */
+    private fun fingerprintsSimilar(a: IntArray, b: IntArray): Boolean {
+        if (a.size != b.size || a.isEmpty()) return false
+        var diff = 0
+        for (i in a.indices) {
+            val ca = a[i]; val cb = b[i]
+            val d = kotlin.math.abs(Color.red(ca) - Color.red(cb)) +
+                    kotlin.math.abs(Color.green(ca) - Color.green(cb)) +
+                    kotlin.math.abs(Color.blue(ca) - Color.blue(cb))
+            if (d > 60) diff++
+        }
+        return diff < a.size * 0.10  // <10% of cells changed = essentially the same screen
     }
 
     // One real translation pass: hide our overlay, grab a clean frame, restore, then OCR/translate.
@@ -815,6 +888,11 @@ class ScreenCaptureService : Service() {
             // Either text actually changed, or we ran out the post-tap deadline. Translate fresh,
             // reusing the OCR we already did on [snap] — no second captureScreen, no second OCR.
             else -> {
+                // Snapshot the pre-box frame fingerprint so a later manual re-translate can tell
+                // whether the screen content has changed since we last translated.
+                pendingOcrFingerprint = snap.frame?.let { f ->
+                    if (!f.isRecycled) fingerprint(f) else null
+                }
                 translationStartSession = sessionId
                 pipeline.translateSnapshot(
                     snap = snap,                       // snap is consumed (recycled) inside
@@ -926,6 +1004,10 @@ class ScreenCaptureService : Service() {
         }
         // Only need a frame for background sampling when drawing in-place.
         val sampleFrame = if (prefs.inPlaceMode) captureScreen() else null
+        // Save its fingerprint for manual re-translate's change-detection check.
+        pendingOcrFingerprint = sampleFrame?.let { f ->
+            if (!f.isRecycled) fingerprint(f) else null
+        }
         pipeline.processBlocks(
             blocks = nodes,
             sourceLanguage = prefs.sourceLanguage,
@@ -938,6 +1020,8 @@ class ScreenCaptureService : Service() {
     private suspend fun processScreenCapture(bitmap: Bitmap, force: Boolean) {
         translationStartSession = sessionId   // remember which session this translation belongs to
         val prefs = PreferencesManager.getInstance(this)
+        // Save the pre-box frame's fingerprint for manual re-translate's change-detection check.
+        pendingOcrFingerprint = if (!bitmap.isRecycled) fingerprint(bitmap) else null
         pipeline.process(
             frame = bitmap,
             area = activeTranslationArea,
