@@ -227,14 +227,14 @@ sequenceDiagram
                 TP->>TS: translateText(blocks, src, tgt)
                 TS->>TC: getTranslation(cacheKey)
                 alt cache hit
-                    TC-->>TS: List&lt;TranslatedBlock&gt;
+                    TC-->>TS: List<TranslatedBlock>
                 else cache miss
                     TS->>LLM: translate(systemPrompt, userPrompt)
                     LLM-->>TS: raw response string
                     TS->>TS: parseTranslationResult()
                     TS->>TC: saveTranslation()
                 end
-                TS-->>TP: List&lt;TranslatedBlock&gt;
+                TS-->>TP: List<TranslatedBlock>
             end
 
             TP->>TP: sampleBackgroundColor (TP 内方法)<br/>每块取背景色
