@@ -214,7 +214,7 @@ sequenceDiagram
         TP-->>SCS: signature string
 
         alt signature 未变
-            SCS-->>Loop: continue (stay in steady)
+            SCS-->>LoopState: continue (stay in steady)
         else signature 变了 且 ≥ STABLE_TEXT_MS
             SCS->>SCS: handleStableScan()
             SCS->>TP: ocrFrame(frame) → OcrSnapshot
