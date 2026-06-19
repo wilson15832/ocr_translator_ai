@@ -25,7 +25,6 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_SOURCE_LANGUAGE = "source_language"
         private const val KEY_TARGET_LANGUAGE = "target_language"
         private const val KEY_LLM_API_ENDPOINT = "llm_api_endpoint"
-        private const val KEY_LLM_API_KEY = "llm_api_key"           // legacy plaintext slot (migrated then cleared)
         private const val KEY_LLM_API_KEY_SECURE = "llm_api_key"    // encrypted store key
         private const val KEY_MODEL_NAME = "model_name"
         private const val KEY_USE_LOCAL_MODEL = "use_local_model"
@@ -57,33 +56,6 @@ class PreferencesManager private constructor(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    init {
-        migrateLegacyApiKey()
-    }
-
-    /**
-     * One-shot migration: if a previous build stored the API key in plain SharedPreferences,
-     * move it into EncryptedSharedPreferences and clear the plaintext copy.
-     */
-    private fun migrateLegacyApiKey() {
-        val legacy = prefs.getString(KEY_LLM_API_KEY, null) ?: return
-        if (legacy.isEmpty()) {
-            prefs.edit { remove(KEY_LLM_API_KEY) }
-            return
-        }
-        try {
-            // Don't clobber an existing encrypted value (defensive — shouldn't happen).
-            if (!SecureStorage.containsKey(appContext, KEY_LLM_API_KEY_SECURE)) {
-                SecureStorage.setEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE, legacy)
-            }
-            prefs.edit { remove(KEY_LLM_API_KEY) }
-            Log.i("PreferencesManager", "Migrated legacy plaintext API key into SecureStorage")
-        } catch (e: Exception) {
-            Log.e("PreferencesManager", "API key migration failed; leaving legacy value in place", e)
-        }
-    }
-
-
     // NOTE: The previous build persisted MediaProjection resultCode + Intent to SharedPreferences
     // (via Parcel marshalling + Base64) so the service could be relaunched without re-prompting.
     // That contract was unsound — the projection token doesn't survive process death — and the
@@ -114,17 +86,6 @@ class PreferencesManager private constructor(context: Context) {
             Log.d("PreferencesManager", "Saving target language: $value") // 添加日志
             prefs.edit { putString(KEY_TARGET_LANGUAGE, value) }
         }
-
-    private val defaultLlmEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    /**
-     * Currently unused at runtime — the active client (OpenAI-compatible vs Gemini) and its
-     * endpoint are picked from [modelName] inside TranslationService.createLlmClient().
-     * Kept because SettingsActivity still exposes the field; remove together with the UI if/when
-     * the architecture goes back to a user-configurable endpoint.
-     */
-    var llmApiEndpoint: String
-        get() = prefs.getString(KEY_LLM_API_ENDPOINT, defaultLlmEndpoint) ?: defaultLlmEndpoint
-        set(value) = prefs.edit { putString(KEY_LLM_API_ENDPOINT, value) }
 
     /** API key, stored in EncryptedSharedPreferences (see [SecureStorage]). */
     var llmApiKey: String
@@ -290,7 +251,6 @@ class PreferencesManager private constructor(context: Context) {
             remove(KEY_SOURCE_LANGUAGE)
             remove(KEY_TARGET_LANGUAGE)
             remove(KEY_LLM_API_ENDPOINT)
-            remove(KEY_LLM_API_KEY) // legacy plaintext slot — defensive
             remove(KEY_MODEL_NAME)
             remove(KEY_USE_LOCAL_MODEL)
             remove(KEY_CAPTURE_INTERVAL)
@@ -350,18 +310,5 @@ class PreferencesManager private constructor(context: Context) {
         ).also {
             Log.d("PreferencesManager", "Retrieved active translation area: $it")
         }
-    }
-
-    // REMOVED the duplicate explicit getter methods
-    // The property accessors above already generate these methods
-
-    fun saveSourceLanguage(language: String) {
-        Log.d("PreferencesManager", "Saving source language: $language")
-        sourceLanguage = language
-    }
-
-    fun saveTargetLanguage(language: String) {
-        Log.d("PreferencesManager", "Saving source language: $language")
-        targetLanguage = language
     }
 }

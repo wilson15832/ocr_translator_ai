@@ -94,7 +94,8 @@ class TranslationPipeline(
         snap: OcrSnapshot,
         sourceLanguage: String,
         targetLanguage: String,
-        force: Boolean
+        force: Boolean,
+        bypassCache: Boolean = false
     ) {
         try {
             val blocks = snap.blocks
@@ -109,7 +110,7 @@ class TranslationPipeline(
                 return
             }
 
-            val results = translator.translateText(blocks, sourceLanguage, targetLanguage)
+            val results = translator.translateText(blocks, sourceLanguage, targetLanguage, bypassCache)
             val bmp = snap.cropped ?: snap.frame
             val dx = snap.areaDx
             val dy = snap.areaDy

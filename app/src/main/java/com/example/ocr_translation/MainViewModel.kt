@@ -1,7 +1,6 @@
 package com.example.ocr_translation
 
 import android.app.Application
-import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -33,19 +32,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Persist the source language. TranslationService picks it up via PreferencesManager on the
     // next translate call (config is reloaded each time), so no in-memory setter is needed.
     fun updateSourceLanguage(languageCode: String) {
-        preferencesManager.saveSourceLanguage(languageCode)
+        preferencesManager.sourceLanguage = languageCode
     }
 
-    fun updateTranslationLanguages(sourceLanguage: String, targetLanguage: String) {
-        preferencesManager.sourceLanguage = sourceLanguage
-        preferencesManager.targetLanguage = targetLanguage
-
-        // Notify service of changes if active
-        if (translationActive.value == true) {
-            val intent = Intent("com.example.ocr_translation.ACTION_UPDATE_TRANSLATION_SETTINGS")
-            intent.putExtra("sourceLanguage", sourceLanguage)
-            intent.putExtra("targetLanguage", targetLanguage)
-            getApplication<Application>().sendBroadcast(intent)
-        }
+    fun updateTargetLanguage(languageCode: String) {
+        preferencesManager.targetLanguage = languageCode
     }
 }

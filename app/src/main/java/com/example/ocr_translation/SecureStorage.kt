@@ -54,7 +54,4 @@ object SecureStorage {
     fun removeEncryptedValue(context: Context, key: String) {
         prefs(context).edit().remove(key).apply()
     }
-
-    fun containsKey(context: Context, key: String): Boolean =
-        prefs(context).contains(key)
 }

@@ -39,12 +39,7 @@
 -keep @androidx.room.Entity class * { *; }
 -keep class com.example.ocr_translation.AppDatabase { *; }
 -keep class com.example.ocr_translation.TranslationCacheEntity { *; }
--keep class com.example.ocr_translation.RecentTranslationEntity { *; }
--keep class com.example.ocr_translation.TranslationArea { *; }
--keep class com.example.ocr_translation.Converters { *; }
 -keep interface com.example.ocr_translation.TranslationCacheDao { *; }
--keep interface com.example.ocr_translation.RecentTranslationsDao { *; }
--keep interface com.example.ocr_translation.TranslationAreaDao { *; }
 -dontwarn androidx.room.paging.**
 
 # --- OkHttp / Okio (mostly self-contained but suppress noisy notes) ---

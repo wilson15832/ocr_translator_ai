@@ -27,7 +27,6 @@ class MainActivity : AppCompatActivity() {
     private val permissionHelper = PermissionHelper(this)
 
     private val PERMISSION_CODE = 100
-    private val PROJECTION_PERMISSION_CODE = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,29 +59,20 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
+        binding.spinnerTargetLanguage.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val languageCodes = resources.getStringArray(R.array.language_codes)
+                viewModel.updateTargetLanguage(languageCodes[position])
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
         // Observe translation active state
         viewModel.translationActive.observe(this) { active ->
             updateTranslationUI(active)
         }
     }
-
-    private fun updateLanguageSettings() {
-        val languageCodes = resources.getStringArray(R.array.language_codes)
-        val sourceLanguage = languageCodes[binding.spinnerSourceLanguage.selectedItemPosition]
-        val targetLanguage = languageCodes[binding.spinnerTargetLanguage.selectedItemPosition]
-
-        // Update preferences
-        viewModel.updateTranslationLanguages(sourceLanguage, targetLanguage)
-
-        // Notify active services
-        if (viewModel.translationActive.value == true) {
-            val intent = Intent("com.example.ocr_translation.ACTION_UPDATE_TRANSLATION_SETTINGS")
-            intent.putExtra("sourceLanguage", sourceLanguage)
-            intent.putExtra("targetLanguage", targetLanguage)
-            sendBroadcast(intent)
-        }
-    }
-
 
     private fun setupLanguageSpinners() {
         val languages = resources.getStringArray(R.array.languages)
@@ -102,10 +92,6 @@ class MainActivity : AppCompatActivity() {
             languages
         )
         binding.spinnerTargetLanguage.adapter = targetAdapter
-
-        // Set selections based on saved preferences
-        val sourceLanguage = viewModel.selectedSourceLanguage
-        val targetLanguage = viewModel.selectedTargetLanguage
 
         // Find position by code instead of name
         val sourceIndex = languageCodes.indexOf(viewModel.selectedSourceLanguage).takeIf { it >= 0 } ?: 0
@@ -236,33 +222,6 @@ class MainActivity : AppCompatActivity() {
             .setMessage(message)
             .setPositiveButton("Try Again") { _, _ -> checkAndRequestPermissions() }
             .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun requestScreenCapture() {
-        // Show explanation dialog before requesting screen capture
-        AlertDialog.Builder(this)
-            .setTitle("Screen Capture Permission")
-            .setMessage("This app needs permission to capture your screen to provide OCR translation. Without this permission, the app cannot function properly.")
-            .setPositiveButton("Request Permission") { _, _ ->
-                // Proceed with the actual permission request
-                val mediaProjectionManager = getSystemService(
-                    Context.MEDIA_PROJECTION_SERVICE
-                ) as MediaProjectionManager
-
-                startActivityForResult(
-                    mediaProjectionManager.createScreenCaptureIntent(),
-                    PROJECTION_PERMISSION_CODE
-                )
-            }
-            .setNegativeButton("Cancel") { _, _ ->
-                Toast.makeText(
-                    this,
-                    "Screen capture permission is required for this app to function",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-            .setCancelable(false)
             .show()
     }
 

@@ -20,8 +20,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 import android.util.Log
-import android.view.Surface
-
 
 object OCRProcessor {
 
@@ -31,7 +29,6 @@ object OCRProcessor {
     private val recognizerLock = Mutex()
     private var currentLanguage: String = "ja"
     private var recognizer: TextRecognizer = createRecognizer(currentLanguage)
-    private var currentRotation: Int = Surface.ROTATION_0
 
     private fun createRecognizer(languageCode: String): TextRecognizer {
         return when (languageCode) {
@@ -50,11 +47,6 @@ object OCRProcessor {
         val boundingBox: Rect,
         val confidence: Float = 1f
     )
-
-    fun setScreenRotation(rotation: Int) {
-        Log.d("OCRProcessor", "Setting screen rotation to: $rotation")
-        currentRotation = rotation
-    }
 
     suspend fun setLanguage(languageCode: String) {
         recognizerLock.withLock {
@@ -93,9 +85,9 @@ object OCRProcessor {
         return out
     }
 
-    suspend fun cleanup() {
-        recognizerLock.withLock {
-            try { recognizer.close() } catch (e: Exception) { Log.w("OCRProcessor", "cleanup close() failed", e) }
-        }
-    }
+//    suspend fun cleanup() {
+//        recognizerLock.withLock {
+//            try { recognizer.close() } catch (e: Exception) { Log.w("OCRProcessor", "cleanup close() failed", e) }
+//        }
+//    }
 }

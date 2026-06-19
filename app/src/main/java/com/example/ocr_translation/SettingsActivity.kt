@@ -114,12 +114,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun loadSettings() {
-        // Translation settings
-        binding.spinnerSourceLanguage.setSelection(getLanguagePosition(preferencesManager.sourceLanguage, isTarget = false))
-        binding.spinnerTargetLanguage.setSelection(getLanguagePosition(preferencesManager.targetLanguage, isTarget = true))
-
         // LLM API settings
-        binding.editApiEndpoint.setText(preferencesManager.llmApiEndpoint)
         binding.editApiKey.setText(preferencesManager.llmApiKey)
         binding.editSystemPrompt.setText(preferencesManager.systemPrompt)
         binding.editUserPrompt.setText(preferencesManager.userPrompt)
@@ -261,7 +256,6 @@ class SettingsActivity : AppCompatActivity() {
         // Local model switch
         binding.switchUseLocalModel.setOnCheckedChangeListener { _, isChecked ->
             binding.layoutApiSettings.isEnabled = !isChecked
-            binding.editApiEndpoint.isEnabled = !isChecked
             binding.editApiKey.isEnabled = !isChecked
             binding.spinnerModel.isEnabled = !isChecked
         }
@@ -321,9 +315,6 @@ class SettingsActivity : AppCompatActivity() {
             languages.copyOfRange(1, languages.size) // Skip "Auto-detect" for target
         )
         Log.d(TAG, "Target spinner adapter item count: ${targetAdapter.count}") // 添加日志
-
-        binding.spinnerSourceLanguage.adapter = sourceAdapter
-        binding.spinnerTargetLanguage.adapter = targetAdapter
 
         // Set up model spinner
         val models = resources.getStringArray(R.array.models)
@@ -451,19 +442,6 @@ class SettingsActivity : AppCompatActivity() {
         updateActiveServices()
     }
 
-    private fun getLanguagePosition(languageCode: String, isTarget: Boolean = false): Int {
-        val languageCodes = resources.getStringArray(R.array.language_codes)
-        val positionInFullList = languageCodes.indexOf(languageCode)
-
-        if(positionInFullList < 0) return 0
-
-        return if (isTarget) {
-            if (languageCode == "auto") 0 else positionInFullList - 1
-        } else {
-            positionInFullList
-        }
-    }
-
     private fun getModelPosition(modelName: String): Int {
         val modelCodes = resources.getStringArray(R.array.model_codes)
         val position = modelCodes.indexOf(modelName)
@@ -473,18 +451,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun saveSettings() {
         Log.d("SettingsActivity", "saveSettings() called") // 添加这行日志
         // Get language codes
-        val languageCodes = resources.getStringArray(R.array.language_codes)
         val modelCodes = resources.getStringArray(R.array.model_codes)
 
-        // Translation settings
-        preferencesManager.sourceLanguage = languageCodes[binding.spinnerSourceLanguage.selectedItemPosition]
-
-        // Adjust target language position (since we skipped "Auto" in the target spinner)
-        val targetPosition = binding.spinnerTargetLanguage.selectedItemPosition + 1
-        preferencesManager.targetLanguage = languageCodes[targetPosition]
-
         // LLM API settings
-        preferencesManager.llmApiEndpoint = binding.editApiEndpoint.text.toString()
         preferencesManager.llmApiKey = binding.editApiKey.text.toString()
         preferencesManager.systemPrompt =
             binding.editSystemPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_SYSTEM_PROMPT }

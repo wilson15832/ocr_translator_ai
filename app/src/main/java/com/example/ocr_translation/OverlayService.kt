@@ -20,7 +20,6 @@ import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -42,7 +41,6 @@ import android.graphics.Canvas
 import android.graphics.Paint
 
 
-
 class OverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var controlPanel: View
@@ -52,6 +50,8 @@ class OverlayService : Service() {
     private val captureHideHandler = Handler(Looper.getMainLooper())
     private var savedTransVis = View.VISIBLE
     private var savedInPlaceVis = View.GONE
+    private var savedTransAlpha = 1f
+    private var savedInPlaceAlpha = 1f
     private val translatedViews = mutableMapOf<Int, View>()
     private var isPaused = false
 
@@ -75,6 +75,9 @@ class OverlayService : Service() {
 
     private lateinit var overlayLayoutParams: WindowManager.LayoutParams // <-- 添加这行声明
 
+    private val translationObserver = androidx.lifecycle.Observer<List<TranslationService.TranslatedBlock>> { translations ->
+        updateOverlays(translations)
+    }
 
     private val rotationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -204,6 +207,9 @@ class OverlayService : Service() {
         fun hideForCapture() { instance?.hideOverlaysForCapture() }
         fun showAfterCapture() { instance?.showOverlaysAfterCapture() }
 
+        fun fadeOutForCapture() { instance?.fadeOutOverlaysForCapture() }
+        fun fadeInAfterCapture() { instance?.fadeInOverlaysAfterCapture() }
+
         fun getTranslationData(): LiveData<List<TranslationService.TranslatedBlock>> = translationData
 
         fun showTranslation(translations: List<TranslationService.TranslatedBlock>) {
@@ -244,8 +250,6 @@ class OverlayService : Service() {
             }
         }
     }
-
-    private lateinit var screenOrientationListener: OrientationEventListener
 
     override fun onCreate() {
         super.onCreate()
@@ -298,13 +302,9 @@ class OverlayService : Service() {
         createInPlaceOverlay()
         createTouchWatch()
 
-        // Set up orientation listener
-        setupOrientationListener()
-
         // Observe translation data
-        translationData.observeForever { translations ->
-            updateOverlays(translations)
-        }
+        translationData.observeForever(translationObserver)
+
         val areaFilter = IntentFilter("com.example.ocr_translation.ACTION_AREA_STATUS_UPDATE")
         registerReceiver(areaUpdateReceiver, areaFilter, Context.RECEIVER_NOT_EXPORTED)
     }
@@ -338,25 +338,6 @@ class OverlayService : Service() {
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build()
 
-    private fun setupOrientationListener() {
-        screenOrientationListener = object : OrientationEventListener(this) {
-            override fun onOrientationChanged(orientation: Int) {
-                if (orientation == ORIENTATION_UNKNOWN) return
-
-                // Only update when crossing orientation thresholds
-                if (orientation % 90 < 10 || orientation % 90 > 80) {
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        translationData.value?.let { updateOverlays(it) }
-                    }, 300)
-                }
-            }
-        }
-
-        if (screenOrientationListener.canDetectOrientation()) {
-            screenOrientationListener.enable()
-        }
-    }
-
     // ===== CONTROL PANEL =====
 
     private fun createControlPanelWindow() {
@@ -373,7 +354,7 @@ class OverlayService : Service() {
             val controlParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                getOverlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,  // Keep this flag
                 PixelFormat.TRANSLUCENT
             ).apply {
@@ -676,7 +657,7 @@ class OverlayService : Service() {
         val controlParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            getOverlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -749,7 +730,7 @@ class OverlayService : Service() {
             //WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT, // <-- Use WRAP_CONTENT for the draggable block
             WindowManager.LayoutParams.WRAP_CONTENT, // <-- Use WRAP_CONTENT for the draggable block
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            getOverlayType(),
             // Add FLAG_NOT_TOUCHABLE here
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or // Keep for good measure
@@ -792,6 +773,26 @@ class OverlayService : Service() {
         captureHideHandler.post {
             if (::translationOverlay.isInitialized) translationOverlay.visibility = savedTransVis
             if (::inPlaceOverlay.isInitialized) inPlaceOverlay.visibility = savedInPlaceVis
+        }
+    }
+
+    private fun fadeOutOverlaysForCapture() {
+        captureHideHandler.post {
+            if (::translationOverlay.isInitialized) {
+                savedTransAlpha = translationOverlay.alpha
+                translationOverlay.alpha = 0f
+            }
+            if (::inPlaceOverlay.isInitialized) {
+                savedInPlaceAlpha = inPlaceOverlay.alpha
+                inPlaceOverlay.alpha = 0f
+            }
+        }
+    }
+
+    private fun fadeInOverlaysAfterCapture() {
+        captureHideHandler.post {
+            if (::translationOverlay.isInitialized) translationOverlay.alpha = savedTransAlpha
+            if (::inPlaceOverlay.isInitialized) inPlaceOverlay.alpha = savedInPlaceAlpha
         }
     }
 
@@ -924,37 +925,10 @@ class OverlayService : Service() {
         val rotation = getCurrentRotation()
         Log.d(TAG, "Updating overlays with ${translations.size} translations, rotation: $rotation")
 
-        // Remove previous overlays
-        /*for (view in translatedViews.values) {
-            translationOverlay.removeView(view)
-        }
-        translatedViews.clear()*/
-
         // Remove all previous views from the translation overlay container
         translationOverlay.removeAllViews()
         translatedViews.clear() // Clear the map as we no longer store individual views
 
-        // If we have an active translation area, adjust the positions
-        /*val areaOffset = if (activeTranslationArea != null) {
-            activeTranslationArea
-        } else {
-            null
-        }
-
-        // Add new translations with current rotation
-        for (translation in translations) {
-            // If we have an active area, check if the text is inside it
-            val shouldShow = if (areaOffset != null) {
-                val rect = translation.boundingBox
-                RectF(rect).intersects(areaOffset.left, areaOffset.top, areaOffset.right, areaOffset.bottom)
-            } else {
-                true
-            }
-
-            if (shouldShow) {
-                createOverlayForTranslation(translation, rotation)
-            }
-        }*/
         // === New Logic: Merge Translations and Create a Single Draggable Block ===
         if (translations.isNotEmpty()) {
             val stringBuilder = StringBuilder()
@@ -1019,247 +993,6 @@ class OverlayService : Service() {
 
     }
 
-    /*private fun createOverlayForTranslation(translation: TranslationService.TranslatedBlock, rotation: Int) {
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val display = wm.defaultDisplay
-        val metrics = DisplayMetrics()
-        display.getRealMetrics(metrics)
-        val screenWidth = metrics.widthPixels
-        val screenHeight = metrics.heightPixels
-
-        // Create text view for translation
-        val textView = TextView(this).apply {
-            text = translation.translatedText
-            setTextColor(ContextCompat.getColor(context, R.color.translation_text_color))
-            setBackgroundColor(getBackgroundColorWithOpacity())
-            textSize = 14f * textSizeMultiplier
-            setPadding(8, 4, 8, 4)
-            maxWidth = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-                // In landscape, limit width to 40% of screen width
-                (screenWidth * 0.4).toInt()
-            } else {
-                (screenWidth * 0.8).toInt()
-            }
-
-            // Make it respond to long clicks but not normal clicks
-            isClickable = false
-            isLongClickable = true
-
-            setOnLongClickListener {
-                showContextMenu(translation, it)
-                true
-            }
-        }
-
-        // Apply styling
-        applyTextViewStyling(textView)
-
-        // Position differently based on orientation
-        val params = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-
-        // Get original rect
-        val rect = translation.boundingBox
-
-        if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-            // For landscape orientation, create a sidebar layout
-            // Use a different approach - line up translations on the right side
-            val isRightSide = rotation == Surface.ROTATION_90
-
-            // Use index to calculate vertical position
-            val index = translatedViews.size
-            val verticalSpacing = 15 // Pixels between entries
-            var topMargin = 100 + (index * (textView.lineHeight + verticalSpacing))
-
-            if (isRightSide) {
-                // Right side of screen
-                params.gravity = Gravity.TOP or Gravity.END
-                params.rightMargin = 50
-                params.topMargin = topMargin
-            } else {
-                // Left side of screen
-                params.gravity = Gravity.TOP or Gravity.START
-                params.leftMargin = 50
-                params.topMargin = topMargin
-            }
-
-            // Add small visual indicator connecting to original text
-            val indicator = View(this).apply {
-                setBackgroundColor(ContextCompat.getColor(context, R.color.translation_text_color))
-                alpha = 0.5f
-            }
-
-            var indicatorLeftMargin = rect.centerX()
-            var indicatorTopMargin = rect.centerY()
-            var indicatorWidth = if (isRightSide) {
-                screenWidth - params.rightMargin - indicatorLeftMargin
-            } else {
-                params.leftMargin - indicatorLeftMargin
-            }
-            var indicatorHeight = Math.abs(topMargin - params.topMargin)
-
-            val indicatorParams = FrameLayout.LayoutParams(
-                indicatorWidth,
-                indicatorHeight
-            ).apply {
-                leftMargin = indicatorLeftMargin
-                topMargin = indicatorTopMargin
-            }
-
-            translationOverlay.addView(indicator, indicatorParams)
-            translatedViews[rect.hashCode() + 2000] = indicator
-
-        } else {
-            // Portrait mode - position below original text
-            params.leftMargin = rect.left
-            params.topMargin = rect.bottom + 5
-
-            // Prevent extending beyond screen edges
-            if (params.leftMargin + textView.width > screenWidth - 10) {
-                params.leftMargin = screenWidth - textView.width - 10
-            }
-            if (params.leftMargin < 10) {
-                params.leftMargin = 10
-            }
-        }
-
-        // Add to overlay
-        translationOverlay.addView(textView, params)
-        translatedViews[rect.hashCode()] = textView
-
-        // Add highlight if enabled
-        if (highlightOriginalText) {
-            addHighlight(rect)
-        }
-    }*/
-
-    /*private fun addOverlayForTranslation(translation: TranslationService.TranslatedBlock, rotation: Int) {
-        //val displayMetrics = resources.displayMetrics
-        //val screenWidth = displayMetrics.widthPixels
-        //val screenHeight = displayMetrics.heightPixels
-
-        val rect = translation.boundingBox
-        val rotation = getCurrentRotation()
-
-        // Get screen dimensions
-        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val display = wm.defaultDisplay
-        val metrics = DisplayMetrics()
-        display.getRealMetrics(metrics)
-        val screenWidth = metrics.widthPixels
-        val screenHeight = metrics.heightPixels
-
-        val adjustedRect = Rect(rect)
-
-        // Adjust rect based on rotation
-        if (rotation == Surface.ROTATION_90) {
-            // For 90-degree rotation (landscape right):
-            // Calculate new coordinates by mapping:
-            // New X = Y (from top)
-            // New Y = screenWidth - Right X
-            val newLeft = rect.top
-            val newTop = screenWidth - rect.right
-            val newRight = rect.bottom
-            val newBottom = screenWidth - rect.left
-
-            adjustedRect.set(newLeft, newTop, newRight, newBottom)
-        } else if (rotation == Surface.ROTATION_270) {
-            // For 270-degree rotation (landscape left):
-            // New X = screenHeight - Bottom Y
-            // New Y = Left X
-            val newLeft = screenHeight - rect.bottom
-            val newTop = rect.left
-            val newRight = screenHeight - rect.top
-            val newBottom = rect.right
-
-            adjustedRect.set(newLeft, newTop, newRight, newBottom)
-        } else if (rotation == Surface.ROTATION_180) {
-            // For 180-degree rotation (upside down):
-            // New X = screenWidth - Right X
-            // New Y = screenHeight - Bottom Y
-            val newLeft = screenWidth - rect.right
-            val newTop = screenHeight - rect.bottom
-            val newRight = screenWidth - rect.left
-            val newBottom = screenHeight - rect.top
-
-            adjustedRect.set(newLeft, newTop, newRight, newBottom)
-        }
-
-        // Get the original bounding box
-        //val originalRect = translation.boundingBox
-
-        // Adjust the bounding box based on rotation
-        //val adjustedRect = adjustRectForRotation(originalRect, currentRotation, screenWidth, screenHeight)
-
-        Log.d(TAG, "Adding overlay for text: ${translation.translatedText}")
-        Log.d(TAG, "Original rect: $rect, Adjusted rect: $adjustedRect")
-
-        // Create text view for translation
-        val textView = TextView(this).apply {
-            text = translation.translatedText
-            setTextColor(ContextCompat.getColor(context, R.color.translation_text_color))
-            setBackgroundColor(getBackgroundColorWithOpacity())
-            textSize = 14f * textSizeMultiplier
-            setPadding(8, 4, 8, 4)
-
-            // Make it respond to long clicks but not normal clicks
-            isClickable = false
-            isLongClickable = true
-
-            setOnLongClickListener {
-                showContextMenu(translation, it)
-                true
-            }
-        }
-
-        // Apply styling
-        applyTextViewStyling(textView)
-
-        // Position based on adjusted rect
-        val params = FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        )
-
-        // Adjust the positioning based on rotation
-        if (rotation == Surface.ROTATION_0 || rotation == Surface.ROTATION_180) {
-            // In portrait mode, position below the original text
-            params.leftMargin = adjustedRect.left
-            params.topMargin = adjustedRect.bottom + 5
-        } else {
-            // In landscape mode, position to the right of the original text
-            params.leftMargin = adjustedRect.right + 5
-            params.topMargin = adjustedRect.top
-        }
-
-        // Ensure the text stays within screen bounds
-        val currentScreenWidth = if (rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270) {
-            screenHeight
-        } else {
-            screenWidth
-        }
-
-        // Add safety margin to prevent text from going off-screen
-        val safetyMargin = 50
-        if (params.leftMargin > currentScreenWidth - safetyMargin) {
-            params.leftMargin = currentScreenWidth - safetyMargin
-        }
-        if (params.leftMargin < safetyMargin) {
-            params.leftMargin = safetyMargin
-        }
-
-        // Add to overlay
-        translationOverlay.addView(textView, params)
-        translatedViews[adjustedRect.hashCode()] = textView
-
-        // Add highlight if enabled
-        if (highlightOriginalText) {
-            addHighlight(adjustedRect)
-        }
-    }*/
-
     private fun getRotatedRect(rect: Rect, rotation: Int): Rect {
         if (rotation == Surface.ROTATION_0) {
             return Rect(rect)
@@ -1292,45 +1025,6 @@ class OverlayService : Service() {
         }
 
         return rotatedRect
-    }
-
-    // Helper method to adjust rect coordinates based on rotation
-    private fun adjustRectForRotation(rect: Rect, rotation: Int, screenWidth: Int, screenHeight: Int): Rect {
-        // Return original rect if no rotation
-        if (rotation == Surface.ROTATION_0) {
-            return rect
-        }
-
-        val adjustedRect = Rect(rect)
-
-        when (rotation) {
-            Surface.ROTATION_90 -> {
-                // 90 degrees clockwise: (x, y) -> (y, screenWidth - x)
-                val left = rect.top
-                val top = screenWidth - rect.right
-                val right = rect.bottom
-                val bottom = screenWidth - rect.left
-                adjustedRect.set(left, top, right, bottom)
-            }
-            Surface.ROTATION_180 -> {
-                // 180 degrees: (x, y) -> (screenWidth - x, screenHeight - y)
-                val left = screenWidth - rect.right
-                val top = screenHeight - rect.bottom
-                val right = screenWidth - rect.left
-                val bottom = screenHeight - rect.top
-                adjustedRect.set(left, top, right, bottom)
-            }
-            Surface.ROTATION_270 -> {
-                // 270 degrees clockwise: (x, y) -> (screenHeight - y, x)
-                val left = screenHeight - rect.bottom
-                val top = rect.left
-                val right = screenHeight - rect.top
-                val bottom = rect.right
-                adjustedRect.set(left, top, right, bottom)
-            }
-        }
-
-        return adjustedRect
     }
 
     private fun addHighlight(rect: Rect) {
@@ -1545,12 +1239,12 @@ class OverlayService : Service() {
         try {
             unregisterReceiver(settingsReceiver)
             unregisterReceiver(rotationReceiver) // Unregister rotation receiver
-            screenOrientationListener.disable()
             areaSelectionView?.let { windowManager.removeView(it) }
             windowManager.removeView(translationOverlay)
             if (::inPlaceOverlay.isInitialized) windowManager.removeView(inPlaceOverlay)
             touchWatchView?.let { windowManager.removeView(it) }
             windowManager.removeView(controlPanel)
+            translationData.removeObserver(translationObserver)
         } catch (e: Exception) {
             Log.e(TAG, "Error during cleanup: ${e.message}", e)
         }

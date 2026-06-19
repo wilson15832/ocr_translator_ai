@@ -73,10 +73,10 @@ class TranslationCache(context: Context) {
         dao.deleteExpired(expiryTime)
     }
 
-    // Clear cache
-    suspend fun clearCache() {
-        withContext(Dispatchers.IO) {
-            dao.deleteAll()
-        }
-    }
+//    // Clear cache
+//    suspend fun clearCache() {
+//        withContext(Dispatchers.IO) {
+//            dao.deleteAll()
+//        }
+//    }
 }

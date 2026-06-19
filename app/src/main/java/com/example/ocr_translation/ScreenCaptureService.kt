@@ -4,7 +4,6 @@ import android.util.Log
 import android.app.Service
 import android.os.Build
 import android.app.Activity
-import com.example.ocr_translation.TranslationService
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
@@ -23,7 +22,6 @@ import com.example.ocr_translation.TranslationService.TranslatedBlock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import com.example.ocr_translation.PreferencesManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -35,6 +33,7 @@ import android.os.HandlerThread // <-- Import
 import android.os.Looper     // <-- Import
 import android.os.IBinder
 import android.content.pm.ServiceInfo
+import kotlinx.coroutines.cancel
 
 import android.hardware.SensorManager
 import android.util.DisplayMetrics
@@ -45,13 +44,11 @@ import android.graphics.RectF
 
 import android.graphics.Rect
 import android.graphics.Color
-import android.content.BroadcastReceiver
-import android.content.IntentFilter
 
 
 class ScreenCaptureService : Service() {
 
-    private val TAG = "ScreenCaptureService_OnStart" // 使用一个统一的 TAG
+    private val TAG = "ScreenCaptureService_OnStart"
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
@@ -187,39 +184,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private val areaReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            Log.d("ScreenCaptureService", "areaReceiver received action: ${intent.action}") // <-- 添加此日志
-            when (intent.action) {
-                "com.example.ocr_translation.ACTION_SET_TRANSLATION_AREA" -> {
-                    Log.d("ScreenCaptureService", "Received SET_TRANSLATION_AREA broadcast")
-
-                    if (intent.hasExtra("area_left") && intent.hasExtra("area_top") &&
-                        intent.hasExtra("area_right") && intent.hasExtra("area_bottom")) {
-
-                        val left = intent.getFloatExtra("area_left", 0f)
-                        val top = intent.getFloatExtra("area_top", 0f)
-                        val right = intent.getFloatExtra("area_right", 0f)
-                        val bottom = intent.getFloatExtra("area_bottom", 0f)
-
-                        val newRect = RectF(left, top, right, bottom)
-                        val areaName = intent.getStringExtra("area_name") ?: "Custom Area"
-
-                        Log.d("ScreenCaptureService", "Setting translation area: $areaName ($newRect)")
-                        updateActiveTranslationArea(newRect)
-                    } else {
-                        Log.e("ScreenCaptureService", "Missing area coordinates in broadcast")
-                    }
-                }
-                "com.example.ocr_translation.ACTION_CLEAR_TRANSLATION_AREA" -> {
-                    Log.d("ScreenCaptureService", "Clearing translation area")
-                    updateActiveTranslationArea(null)
-                }
-            }
-        }
-    }
-
-
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -269,12 +233,6 @@ class ScreenCaptureService : Service() {
             Log.d("ScreenCaptureService", "Orientation listener enabled")
         }
 
-        val filter = IntentFilter().apply {
-            addAction("com.example.ocr_translation.ACTION_SET_TRANSLATION_AREA")
-            addAction("com.example.ocr_translation.ACTION_CLEAR_TRANSLATION_AREA")
-        }
-        registerReceiver(areaReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-
         // Restore any previously saved area
         restoreActiveTranslationArea()
     }
@@ -314,23 +272,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    /*override fun onServiceConnected() {
-        super.onServiceConnected()
-        // Initialize screen metrics
-        //val metrics = resources.displayMetrics
-        //screenWidth = metrics.widthPixels
-        //screenHeight = metrics.heightPixels
-        //screenDensity = metrics.densityDpi
-        updateScreenMetrics()
-
-        // Initialize image reader for screenshots
-        //imageReader = ImageReader.newInstance(
-        //    screenWidth, screenHeight,
-        //    PixelFormat.RGBA_8888, 2
-        //)
-        initializeImageReader()
-    }*/
-
     private fun updateScreenMetrics() {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val display = wm.defaultDisplay
@@ -346,8 +287,6 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService",
             "Screen metrics updated: w=$screenWidth, h=$screenHeight, density=$screenDensity, rotation=$currentRotation")
 
-        // Update OCR processor with new rotation
-        OCRProcessor.setScreenRotation(currentRotation)
     }
 
     private fun broadcastRotationChange() {
@@ -358,22 +297,6 @@ class ScreenCaptureService : Service() {
         sendBroadcast(intent)
         Log.d("ScreenCaptureService", "Broadcast rotation change: $currentRotation")
     }
-
-    private fun initializeImageReader() {
-        // Close existing imageReader if it exists
-        imageReader?.close()
-
-        try {
-            imageReader = ImageReader.newInstance(
-                screenWidth, screenHeight,
-                PixelFormat.RGBA_8888, 2
-            )
-            Log.d("ScreenCaptureService", "ImageReader initialized with w:$screenWidth, h:$screenHeight")
-        } catch (e: IllegalArgumentException) {
-            Log.e("ScreenCaptureService", "Error initializing ImageReader", e)
-        }
-    }
-
 
     private fun setupMediaProjectionCallback() {
         mediaProjectionCallback = object : MediaProjection.Callback() {
@@ -443,7 +366,7 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // 使用上面定义的 TAG
+
         Log.d(TAG, "onStartCommand received intent: $intent")
 
         // 确保服务始终在前台运行（这是截图服务通常需要的权限）
@@ -514,7 +437,6 @@ class ScreenCaptureService : Service() {
             }
 
             // === 处理设置翻译区域的 Intent ===
-            // 这个 Intent 预计由 AreaManagementFragment 发送，包含区域的 float 坐标
             "com.example.ocr_translation.ACTION_SET_TRANSLATION_AREA" -> {
                 Log.d(TAG, "Received ACTION_SET_TRANSLATION_AREA intent.")
 
@@ -545,7 +467,6 @@ class ScreenCaptureService : Service() {
             }
 
             // === 处理清除翻译区域的 Intent ===
-            // 这个 Intent 预计由 AreaManagementFragment 发送
             "com.example.ocr_translation.ACTION_CLEAR_TRANSLATION_AREA" -> {
                 Log.d(TAG, "Received ACTION_CLEAR_TRANSLATION_AREA intent.")
                 // 调用方法清除区域变量
@@ -560,11 +481,11 @@ class ScreenCaptureService : Service() {
         }
 
         // 根据你的服务设计，返回适当的标志：
-        // START_STICKY: 服务在被系统杀死后会尝试重新创建，且在内存充足时重新发送最后一个 START 命令的 Intent (如果是 null 则发 null intent)。适合需要持续运行的服务。
-        // START_NOT_STICKY: 服务被杀死后不会自动重建，除非有新的 START 命令。
-        // START_REDELIVER_INTENT: 服务被杀死后会重新创建，并保证重新发送最后一个 START 命令的 Intent，即使 Intent 为 null。
-        // 对于截图服务，START_STICKY 通常是合适的，它会在内存充足时尝试保持服务运行。
-        return Service.START_STICKY
+        // START_STICKY: 被杀后系统自动重建，但 intent 为 null。
+        // START_NOT_STICKY: 被杀后不自动重建，需有新的 START 命令。
+        // 本服务依赖一次性的 MediaProjection 授权（无法跨进程存活），被杀后即使重建也拿不到授权、
+        // 只会空转成无法截屏的僵尸。故用 START_NOT_STICKY，等用户主动重开并重新授权。
+        return Service.START_NOT_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -676,11 +597,6 @@ class ScreenCaptureService : Service() {
             return
         }
 
-        if (frame == null) {
-            Log.w(TAG, "Manual: captureScreen returned null")
-            return
-        }
-
         pendingOcrFingerprint = fingerprint(frame)
 
         // 总是 OCR，然后用文字内容做"同/异"判断 —— 比像素指纹可靠得多
@@ -702,7 +618,7 @@ class ScreenCaptureService : Service() {
             Log.d(TAG, "Manual: OCR text identical → bypass LLM cache, retry translation")
             // 用刚 OCR 出的新 blocks（位置可能微调），bypassCache 强制 LLM 重译
             val blocks = snap.blocks
-            // snap 不再用了，回收里面的 bitmap（如果 pipeline 没自动回收的话按你现有 API 处理）
+            // processBlocks 只会收 sampleFrame(=frame)，snap的cropped在此显式回收
             pipeline.processBlocks(
                 blocks = blocks,
                 sourceLanguage = prefs.sourceLanguage,
@@ -711,38 +627,30 @@ class ScreenCaptureService : Service() {
                 sampleFrame = frame,
                 bypassCache = true
             )
+            snap.recycle()
         } else {
             Log.d(TAG, "Manual: ${if (kind == ManualKind.FORCE_OCR) "FORCE_OCR" else "content changed"} → translate")
             pipeline.translateSnapshot(
                 snap = snap,
                 sourceLanguage = prefs.sourceLanguage,
                 targetLanguage = prefs.targetLanguage,
-                force = true
+                force = true,
+                bypassCache = (kind == ManualKind.FORCE_OCR)
             )
         }
         enterSteady()
     }
 
-    /** Cheap pre-box frame comparison — much faster than re-OCRing to decide whether to translate. */
-    private fun fingerprintsSimilar(a: IntArray, b: IntArray): Boolean {
-        if (a.size != b.size || a.isEmpty()) return false
-        var diff = 0
-        for (i in a.indices) {
-            val ca = a[i]; val cb = b[i]
-            val d = kotlin.math.abs(Color.red(ca) - Color.red(cb)) +
-                    kotlin.math.abs(Color.green(ca) - Color.green(cb)) +
-                    kotlin.math.abs(Color.blue(ca) - Color.blue(cb))
-            if (d > 60) diff++
-        }
-        return diff < a.size * 0.10  // <10% of cells changed = essentially the same screen
-    }
-
     // One real translation pass: hide our overlay, grab a clean frame, restore, then OCR/translate.
     private suspend fun performTranslation(force: Boolean) {
-        OverlayService.hideForCapture()
-        kotlinx.coroutines.delay(120)
+//        OverlayService.hideForCapture()
+//        kotlinx.coroutines.delay(120)
+//        val frame = captureScreen()
+//        OverlayService.showAfterCapture()
+        OverlayService.fadeOutForCapture()    // view.alpha = 0f
+        kotlinx.coroutines.delay(33)
         val frame = captureScreen()
-        OverlayService.showAfterCapture()
+        OverlayService.fadeInAfterCapture()   // view.alpha = 1f
         frame?.let { processScreenCapture(it, force) }
         // Re-baseline against the screen now showing our box, so we detect the next real change
         lastFingerprint = null
@@ -919,10 +827,10 @@ class ScreenCaptureService : Service() {
     // differs from what the shown box was built from (or if it couldn't be read — re-scan to be safe).
     private suspend fun textChangedSincePeek(sourceLanguage: String): Boolean {
         if (shownOcrSig.isEmpty()) return true
-        OverlayService.hideForCapture()
-        kotlinx.coroutines.delay(120)
+        OverlayService.fadeOutForCapture()
+        kotlinx.coroutines.delay(33)
         val clean = captureScreen()
-        OverlayService.showAfterCapture()
+        OverlayService.fadeInAfterCapture()
         val newSig = if (clean != null)
             pipeline.ocrSignature(clean, activeTranslationArea, sourceLanguage) else ""
         if (newSig.isEmpty()) return true
@@ -1069,31 +977,8 @@ class ScreenCaptureService : Service() {
                     } else raw
                 } catch (e: Exception) {
                     Log.e("ScreenCaptureService", "Error creating or copying bitmap: ${e.message}")
-                    e.printStackTrace()
-
-                    // Try with an alternative approach if the first one fails
-                    if (bitmap == null || bitmap.isRecycled) {
-                        try {
-                            // For safety, ensure we're creating a bitmap with dimensions
-                            // that won't exceed the buffer size
-                            val bufferSize = buffer.remaining()
-                            val estimatedWidth = Math.min(bufferWidth, Math.sqrt(bufferSize / 4.0).toInt())
-                            val estimatedHeight = Math.min(bufferHeight, bufferSize / (estimatedWidth * 4))
-
-                            Log.d("ScreenCaptureService", "Retry with safe dimensions: $estimatedWidth x $estimatedHeight")
-
-                            bitmap = Bitmap.createBitmap(
-                                estimatedWidth,
-                                estimatedHeight,
-                                Bitmap.Config.ARGB_8888
-                            )
-                            bitmap.copyPixelsFromBuffer(buffer)
-                        } catch (e2: Exception) {
-                            Log.e("ScreenCaptureService", "Alternative bitmap creation also failed: ${e2.message}")
-                            bitmap?.recycle()
-                            bitmap = null
-                        }
-                    }
+                    bitmap?.recycle()
+                    bitmap = null
                 }
             } else {
                 Log.d("ScreenCaptureService", "acquireLatestImage() returned null")
@@ -1197,6 +1082,7 @@ class ScreenCaptureService : Service() {
         Log.d("ScreenCaptureService", "onDestroy called.")
         stopCapture() // 确保停止
         orientationListener.disable()
+        serviceScope.cancel()
 
         // 停止后台线程
         handlerThread?.quitSafely()
@@ -1209,13 +1095,6 @@ class ScreenCaptureService : Service() {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
-        // Unregister the receiver
-        try {
-            unregisterReceiver(areaReceiver)
-        } catch (e: Exception) {
-            Log.w("ScreenCaptureService", "Error unregistering area receiver", e)
-        }
-
         super.onDestroy()
     }
 
