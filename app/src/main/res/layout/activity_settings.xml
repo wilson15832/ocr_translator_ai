@@ -35,6 +35,12 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
 
+                        <Spinner
+                            android:id="@+id/spinnerProvider"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp" />
+
                         <com.google.android.material.textfield.TextInputLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
@@ -60,6 +66,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="@string/model" />
+
 
                             <Spinner
                                 android:id="@+id/spinnerModel"
@@ -107,6 +114,37 @@
                             android:minLines="3"
                             android:gravity="top" />
                     </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/max_output_tokens" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/sliderMaxTokens"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:valueFrom="256"
+                            android:valueTo="4096"
+                            android:stepSize="256" />
+
+                        <TextView
+                            android:id="@+id/textMaxTokensValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="1024"
+                            android:minWidth="40dp" />
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -477,10 +515,10 @@
                         android:layout_marginTop="12dp" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switchHighlightOriginal"
+                        android:id="@+id/switchMergeOverlap"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/highlight_original_text"
+                        android:text="@string/merge_overlap_boxes"
                         android:layout_marginTop="8dp" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial

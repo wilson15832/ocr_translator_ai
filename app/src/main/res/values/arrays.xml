@@ -50,24 +50,34 @@
 
     <!-- Available LLM models -->
     <string-array name="models">
-        <item>Gemini 2.0 Flash</item>
-        <item>Gemini 2.0 Pro</item>
-        <item>GPT-4 Turbo</item>
-        <item>GPT-3.5 Turbo</item>
-        <item>Claude 3 Haiku</item>
-        <item>Claude 3 Sonnet</item>
+        <item>Gemini 3.1 Pro</item>
+        <item>Gemini 3.5 Flash</item>
+        <item>Gemini 3.1 Flash Lite</item>
+        <item>GPT-5.5</item>
+        <item>GPT-5.4 Mini</item>
+        <item>GPT-5.4 Nano</item>
+        <item>GPT-5 Mini</item>
+        <item>GPT-5 Nano</item>
+        <item>Claude Opus 4.7</item>
+        <item>Claude Sonnet 4.6</item>
+        <item>Claude Haiku 4.5</item>
         <item>DeepSeek v4 Flash</item>
         <item>DeepSeek v4 Pro</item>
     </string-array>
 
     <!-- Model codes for API selection -->
     <string-array name="model_codes">
-        <item>gemini-2.0-flash</item>
-        <item>gemini-2.0-pro</item>
-        <item>gpt-4-turbo</item>
-        <item>gpt-3.5-turbo</item>
-        <item>claude-3-haiku</item>
-        <item>claude-3-sonnet</item>
+        <item>gemini-3.1-pro</item>
+        <item>gemini-3.5-flash</item>
+        <item>gemini-3.1-flash-lite</item>
+        <item>gpt-5.5</item>
+        <item>gpt-5.4-mini</item>
+        <item>gpt-5.4-nano</item>
+        <item>gpt-5-mini</item>
+        <item>gpt-5-nano</item>
+        <item>claude-opus-4-7</item>
+        <item>claude-sonnet-4-6</item>
+        <item>claude-haiku-4-5</item>
         <item>deepseek-v4-flash</item>
         <item>deepseek-v4-pro</item>
     </string-array>

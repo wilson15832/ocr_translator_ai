@@ -200,7 +200,10 @@ class ScreenCaptureService : Service() {
         // Initialize both dependencies
         translationService = TranslationService.getInstance(this)
         translationCache = TranslationCache(applicationContext)
-        pipeline = TranslationPipeline(translationService) { results ->
+        pipeline = TranslationPipeline(
+            translationService,
+            onWillTranslate = { OverlayService.clearShownTranslation() }
+        ) { results ->
             // Drop the result if the user tapped while this translation was running
             if (translationStartSession == sessionId) {
                 lastResultRects = results.map { it.boundingBox }

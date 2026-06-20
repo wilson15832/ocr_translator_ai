@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnStartTranslation.setOnClickListener {
             Log.d("MainActivity", "btnStartTranslation clicked!") // <-- Add Log
+            TranslationService.getInstance(this).warmUp()
             checkAndRequestPermissions()
         }
 

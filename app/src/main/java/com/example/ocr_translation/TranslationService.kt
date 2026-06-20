@@ -5,6 +5,11 @@ import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Request
+import okhttp3.Response
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
@@ -32,6 +37,7 @@ class TranslationService private constructor(private val context: Context) {
     data class TranslationConfig(
         var sourceLanguage: String = "auto", // Auto-detect
         var targetLanguage: String = "en",   // English default
+        var maxTokens: Int = 1024,
         var preserveFormatting: Boolean = true,
         var preferSpeed: Boolean = false,    // Speed vs quality tradeoff
         var modelName: String = "gpt-4-turbo", // Default model
@@ -51,6 +57,7 @@ class TranslationService private constructor(private val context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .callTimeout(40, TimeUnit.SECONDS)   // hard ceiling for the whole request
+        .eventListenerFactory { LlmLatencyListener() }
         .build()
 
     // Gson for JSON parsing
@@ -59,6 +66,7 @@ class TranslationService private constructor(private val context: Context) {
     fun loadConfig(preferencesManager: PreferencesManager) {
         config.sourceLanguage = preferencesManager.sourceLanguage
         config.targetLanguage = preferencesManager.targetLanguage
+        config.maxTokens = preferencesManager.maxTokens
         config.preserveFormatting = preferencesManager.preserveFormatting
         config.preferSpeed = preferencesManager.preferSpeed
         config.modelName = preferencesManager.modelName
@@ -66,7 +74,7 @@ class TranslationService private constructor(private val context: Context) {
         config.maxCacheSize = preferencesManager.maxCacheEntries
         config.systemPrompt = preferencesManager.systemPrompt
         config.userPrompt = preferencesManager.userPrompt
-        apiKey = preferencesManager.llmApiKey
+        apiKey = preferencesManager.activeApiKey
     }
 
     private fun createLlmClient(): LlmClient {
@@ -74,15 +82,42 @@ class TranslationService private constructor(private val context: Context) {
         return when {
             model.startsWith("deepseek") ->
                 OpenAiCompatibleClient(client, gson, apiKey,
-                    "https://api.deepseek.com/chat/completions", model)
+                    "https://api.deepseek.com/chat/completions", model, config.maxTokens)
             model.startsWith("gpt") ->
                 OpenAiCompatibleClient(client, gson, apiKey,
-                    "https://api.openai.com/v1/chat/completions", model)
+                    "https://api.openai.com/v1/chat/completions", model, config.maxTokens)
+            model.startsWith("gemini") ->
+                GeminiClient(client, gson, apiKey,
+                    "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, config.maxTokens)
+            model.startsWith("claude") ->
+                ClaudeClient(client, gson, apiKey,
+                    "https://api.anthropic.com/v1/messages", model, config.maxTokens)
             else ->  // gemini-* and fallback
-                GeminiClient(client, gson, apiKey, model)
+                GeminiClient(client, gson, apiKey,
+                    "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, config.maxTokens)
         }
     }
 
+    /**
+     * 预热：开始翻译时对当前 provider 的 host 建立一次连接（TLS/HTTP2 握手），
+     * 连接进 OkHttp 连接池，首次真实翻译复用、省掉握手延迟。best-effort，失败忽略。
+     */
+    fun warmUp() {
+        loadConfig(PreferencesManager.getInstance(context))
+        if (config.useLocalModel || apiKey.isBlank()) return   // 本地模型/未配 key 无需预热
+
+        val host = when {
+            config.modelName.startsWith("deepseek") -> "https://api.deepseek.com/"
+            config.modelName.startsWith("gpt")      -> "https://api.openai.com/"
+            else                                    -> "https://generativelanguage.googleapis.com/"
+        }
+
+        val request = Request.Builder().url(host).head().build()
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) { /* 预热失败忽略 */ }
+            override fun onResponse(call: Call, response: Response) { response.close() }
+        })
+    }
 
     // Main translation function.
     // [bypassCache] = true skips the cache lookup AND overwrites any existing cache entry with the

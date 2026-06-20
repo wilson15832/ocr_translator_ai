@@ -15,6 +15,7 @@ import android.util.Log
 class TranslationPipeline(
     private val translator: TranslationService,
     private val changeDetector: ChangeDetector = ChangeDetector(),
+    private val onWillTranslate: () -> Unit = {},
     private val onResult: (List<TranslationService.TranslatedBlock>) -> Unit
 ) {
 
@@ -69,7 +70,9 @@ class TranslationPipeline(
         return try {
             OCRProcessor.setLanguage(sourceLanguage)
             val cropped = if (area != null) (cropToArea(frame, area) ?: frame) else frame
+            PerfTrace.ocrStart()
             val blocks = OCRProcessor.recognize(cropped)
+            PerfTrace.ocrDone()
             val sig = blocks.joinToString("|") { it.text }.lowercase().replace("\\s+".toRegex(), "")
             OcrSnapshot(
                 sig = sig,
@@ -110,7 +113,10 @@ class TranslationPipeline(
                 return
             }
 
+            onWillTranslate()
+            PerfTrace.netStart()
             val results = translator.translateText(blocks, sourceLanguage, targetLanguage, bypassCache)
+            PerfTrace.netDone()
             val bmp = snap.cropped ?: snap.frame
             val dx = snap.areaDx
             val dy = snap.areaDy

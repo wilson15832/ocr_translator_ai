@@ -58,7 +58,6 @@ class OverlayService : Service() {
     // Settings
     private var textSizeMultiplier = 1.0f
     private var overlayOpacity = 0.8f
-    private var highlightOriginalText = true
     private var useAlternativeStyle = false
 
     private var currentRotation = Surface.ROTATION_0
@@ -199,6 +198,7 @@ class OverlayService : Service() {
     // Companion object for communication
     companion object {
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
+        private val mainHandler = Handler(Looper.getMainLooper())
         private const val TAG = "OverlayService"
 
         // Lets the capture service hide our translated overlays during a screen grab,
@@ -216,8 +216,9 @@ class OverlayService : Service() {
             Log.d(TAG, "showTranslation called with ${translations.size} items.") // 添加日志
             if (translations.isNotEmpty()) {
                 Log.d(TAG, "First item original: ${translations[0].originalText}, translated: ${translations[0].translatedText}") // 记录第一条看看
+                PerfTrace.resultPending()
             }
-            translationData.postValue(translations)
+            mainHandler.post { translationData.value = translations }
         }
 
         fun clearShownTranslation() { instance?.clearShownTranslationImpl() }
@@ -228,10 +229,9 @@ class OverlayService : Service() {
             if (intent?.action == "com.example.ocr_translation.ACTION_UPDATE_OVERLAY_SETTINGS") {
                 val textSize = intent.getFloatExtra("textSize", 1.0f)
                 val opacity = intent.getFloatExtra("opacity", 0.8f)
-                val highlight = intent.getBooleanExtra("highlight", true)
                 val alternativeStyle = intent.getBooleanExtra("alternativeStyle", false)
 
-                updateSettings(textSize, opacity, highlight, alternativeStyle)
+                updateSettings(textSize, opacity, alternativeStyle)
 
                 val showBorder = intent.getBooleanExtra("showAreaBorder", true)
                 if (!showBorder) {
@@ -279,7 +279,6 @@ class OverlayService : Service() {
         val preferencesManager = PreferencesManager.getInstance(this)
         textSizeMultiplier = preferencesManager.textSizeMultiplier
         overlayOpacity = preferencesManager.overlayOpacity
-        highlightOriginalText = preferencesManager.highlightOriginalText
         useAlternativeStyle = preferencesManager.useAlternativeStyle
 
         // Start foreground to keep service alive
@@ -776,23 +775,23 @@ class OverlayService : Service() {
         }
     }
 
+    private var faded = false
+
     private fun fadeOutOverlaysForCapture() {
         captureHideHandler.post {
-            if (::translationOverlay.isInitialized) {
-                savedTransAlpha = translationOverlay.alpha
-                translationOverlay.alpha = 0f
-            }
-            if (::inPlaceOverlay.isInitialized) {
-                savedInPlaceAlpha = inPlaceOverlay.alpha
-                inPlaceOverlay.alpha = 0f
-            }
+            if (faded) return@post          // 已经淡出，别再覆盖 savedAlpha
+            faded = true
+            if (::translationOverlay.isInitialized) { savedTransAlpha = translationOverlay.alpha; translationOverlay.alpha = 0f }
+            if (::inPlaceOverlay.isInitialized)   { savedInPlaceAlpha = inPlaceOverlay.alpha;   inPlaceOverlay.alpha = 0f }
         }
     }
 
     private fun fadeInOverlaysAfterCapture() {
         captureHideHandler.post {
+            if (!faded) return@post
+            faded = false
             if (::translationOverlay.isInitialized) translationOverlay.alpha = savedTransAlpha
-            if (::inPlaceOverlay.isInitialized) inPlaceOverlay.alpha = savedInPlaceAlpha
+            if (::inPlaceOverlay.isInitialized)   inPlaceOverlay.alpha = savedInPlaceAlpha
         }
     }
 
@@ -848,74 +847,132 @@ class OverlayService : Service() {
         }
     }
 
+    /** 把几何重叠或紧邻（水平有交集且竖直间隙很小）的 block 并成组。 */
+    private fun groupOverlapping(
+        items: List<TranslationService.TranslatedBlock>
+    ): List<List<TranslationService.TranslatedBlock>> {
+        val n = items.size
+        val parent = IntArray(n) { it }
+        fun find(x: Int): Int { var r = x; while (parent[r] != r) r = parent[r]; return r }
+        for (i in 0 until n) for (j in i + 1 until n)
+            if (related(items[i].boundingBox, items[j].boundingBox)) parent[find(i)] = find(j)
+        return items.indices.groupBy { find(it) }.values.map { idx -> idx.map { items[it] } }
+    }
+
+    private fun related(a: Rect, b: Rect): Boolean {
+        val hOver = minOf(a.right, b.right) - maxOf(a.left, b.left)
+        if (hOver <= 0) return false                                   // 水平无交集 → 不相关
+        val vGap = maxOf(a.top, b.top) - minOf(a.bottom, b.bottom)     // <0 重叠，>0 间隙
+        return vGap < minOf(a.height(), b.height()) * 0.5f             // 重叠或间隙很小才合并
+    }
+
     // Draws a frosted box with the translation over each original text region
     private fun renderInPlace(translations: List<TranslationService.TranslatedBlock>) {
         inPlaceOverlay.removeAllViews()
-        if (translations.isEmpty()) {
-            inPlaceOverlay.visibility = View.GONE
-            return
-        }
+        if (translations.isEmpty()) { inPlaceOverlay.visibility = View.GONE; return }
         val prefs = PreferencesManager.getInstance(this)
         val loc = IntArray(2)
         inPlaceOverlay.getLocationOnScreen(loc)
-        Log.d(TAG, "inPlaceOverlay loc=(${loc[0]},${loc[1]}) size=${inPlaceOverlay.width}x${inPlaceOverlay.height}")
         val screenW = if (inPlaceOverlay.width > 0) inPlaceOverlay.width
         else resources.displayMetrics.widthPixels
+        val refH = translations.maxOf { it.boundingBox.height() }.coerceAtLeast(1)
 
-        for (t in translations) {
-            val rect = t.boundingBox
-
-            // 把 box 宽度放大到原文 bounding box 的 1.5 倍，给较长的译文留排版空间
-            val origW = rect.width()
-            // 原文窄 → 给 1.5× 让长译文舒展；原文已经很宽 → 只放 1.1×，避免撞屏幕右沿后被钳回去
-            val factor = if (origW < screenW * 0.5f) 1.5f else 1.1f
-            val expandedW = (origW * factor).toInt()
-            val boxWidth = expandedW + 8  // +8 是原来的 padding 余量
-
-            val tv = TextView(this).apply {
-                text = t.translatedText
-                setTextColor(prefs.translationTextColor)
-                typeface = resultTypeface()
-                textSize = 14f * textSizeMultiplier
-                setPadding(12, 6, 12, 6)
-                background = if (t.bgColor != 0) {
-                    android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = 8f
-                        setColor(t.bgColor or 0xFF000000.toInt())
-                    }
-                } else {
-                    android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = 8f
-                        setColor(prefs.translationBgColor or 0xFF000000.toInt())
-                    }
+        for (group in groupOverlapping(translations)) {
+            if (prefs.mergeOverlapBoxes) {
+                // 模式B：合并重叠框、保留注音（单背景，组内各行透明叠加）
+                addMergedBox(group, refH, screenW, loc, prefs)
+            } else {
+                // 模式A：独立框、丢弃注音（组内丢掉矮块，其余各自成框）
+                val maxH = group.maxOf { it.boundingBox.height() }
+                for (t in group.filter { it.boundingBox.height() >= maxH * 0.6f }) {
+                    addSeparateBox(t, refH, screenW, loc, prefs)
                 }
-                minWidth = boxWidth
-                minHeight = rect.height() + 8
-                gravity = Gravity.CENTER_VERTICAL
             }
-
-            // 默认左边对齐原文左沿（往右扩 0.5×），如果右沿会超出屏幕则整体往左移
-            var leftAbs = (rect.left - loc[0] - 4)
-            if (leftAbs + boxWidth > screenW) {
-                leftAbs = screenW - boxWidth
-            }
-            leftAbs = leftAbs.coerceAtLeast(0)
-
-            Log.d(TAG, "in-place block: rect=$rect boxW=$boxWidth overlay=${inPlaceOverlay.width}x${inPlaceOverlay.height}")
-            val lp = FrameLayout.LayoutParams(
-                boxWidth,
-                FrameLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                leftMargin = leftAbs
-                topMargin = (rect.top - loc[1] - 4).coerceAtLeast(0)
-            }
-            inPlaceOverlay.addView(tv, lp)
         }
         inPlaceOverlay.visibility = View.VISIBLE
     }
 
+    /** 模式A：单个 block 独立框（原逻辑 + 高度缩放）。 */
+    private fun addSeparateBox(
+        t: TranslationService.TranslatedBlock, refH: Int, screenW: Int,
+        loc: IntArray, prefs: PreferencesManager
+    ) {
+        val rect = t.boundingBox
+        val hScale = (rect.height().toFloat() / refH).coerceIn(0.5f, 1f)
+        val origW = rect.width()
+        val factor = if (origW < screenW * 0.5f) 1.25f else 1.1f
+        val boxWidth = (origW * factor).toInt() + 8
+        val bg = (if (t.bgColor != 0) t.bgColor else prefs.translationBgColor) or 0xFF000000.toInt()
+        val padH = (12 * hScale).toInt().coerceAtLeast(4)
+        val padV = (6 * hScale).toInt().coerceAtLeast(2)
+        val tv = TextView(this).apply {
+            text = t.translatedText
+            setTextColor(prefs.translationTextColor)
+            typeface = resultTypeface()
+            textSize = 14f * textSizeMultiplier * hScale
+            setPadding(padH, padV, padH, padV)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 8f; setColor(bg)
+            }
+            minWidth = boxWidth
+            minHeight = rect.height() + 8
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        var leftAbs = (rect.left - loc[0] - 4)
+        if (leftAbs + boxWidth > screenW) leftAbs = screenW - boxWidth
+        leftAbs = leftAbs.coerceAtLeast(0)
+        inPlaceOverlay.addView(tv, FrameLayout.LayoutParams(
+            boxWidth, FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            leftMargin = leftAbs
+            topMargin = (rect.top - loc[1] - 4).coerceAtLeast(0)
+        })
+    }
+
+    /** 模式B：一组重叠 block 合一个框，单背景，组内各行透明叠加（保留注音）。 */
+    private fun addMergedBox(
+        group: List<TranslationService.TranslatedBlock>, refH: Int, screenW: Int,
+        loc: IntArray, prefs: PreferencesManager
+    ) {
+        val union = Rect(group.first().boundingBox)
+        group.forEach { union.union(it.boundingBox) }
+        val bg = (group.firstOrNull { it.bgColor != 0 }?.bgColor
+            ?: prefs.translationBgColor) or 0xFF000000.toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(12, 6, 12, 6)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 8f; setColor(bg)
+            }
+        }
+        for (t in group.sortedBy { it.boundingBox.top }) {
+            val hScale = (t.boundingBox.height().toFloat() / refH).coerceIn(0.5f, 1f)
+            container.addView(TextView(this).apply {
+                text = t.translatedText
+                setTextColor(prefs.translationTextColor)
+                typeface = resultTypeface()
+                textSize = 14f * textSizeMultiplier * hScale
+                gravity = Gravity.CENTER_VERTICAL
+            })
+        }
+        val origW = union.width()
+        val factor = if (origW < screenW * 0.5f) 1.2f else 1.1f
+        val boxWidth = (origW * factor).toInt() + 8
+        var leftAbs = (union.left - loc[0] - 4)
+        if (leftAbs + boxWidth > screenW) leftAbs = screenW - boxWidth
+        leftAbs = leftAbs.coerceAtLeast(0)
+        container.minimumWidth = boxWidth
+        inPlaceOverlay.addView(container, FrameLayout.LayoutParams(
+            boxWidth, FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            leftMargin = leftAbs
+            topMargin = (union.top - loc[1] - 4).coerceAtLeast(0)
+        })
+    }
+
     private fun updateOverlays(translations: List<TranslationService.TranslatedBlock>) {
         if (isPaused) return
+        PerfTrace.displayed()
         if (PreferencesManager.getInstance(this).inPlaceMode) {
             translationOverlay.visibility = View.GONE
             renderInPlace(translations)
@@ -971,80 +1028,12 @@ class OverlayService : Service() {
             // Store the single view if needed, but clearing translatedViews might be sufficient
             // translatedViews[0] = mergedTextView // Example if you need to reference it later
 
-            // Add highlights for original blocks if enabled
-            if (highlightOriginalText) {
-                // Keep adding highlight views for original blocks
-                for (translation in translations) {
-                    val rect = translation.boundingBox
-                    // You might need to adjust rect for rotation here if addHighlight doesn't
-                    val highlightRect = getRotatedRect(rect, rotation) // Reuse your rotation adjustment logic
-                    addHighlight(highlightRect)
-                }
-            }
-
-
             translationOverlay.visibility = View.VISIBLE // Show the overlay container
         } else {
             // No translations, hide the overlay container
             translationOverlay.visibility = View.GONE
-            // Also ensure no highlight views remain
-            // Note: removeAllViews() above handles clearing highlights if they were added to translationOverlay
         }
 
-    }
-
-    private fun getRotatedRect(rect: Rect, rotation: Int): Rect {
-        if (rotation == Surface.ROTATION_0) {
-            return Rect(rect)
-        }
-
-        val rotatedRect = Rect()
-        val display = (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay
-        val metrics = DisplayMetrics()
-        display.getRealMetrics(metrics)
-
-        when (rotation) {
-            Surface.ROTATION_90 -> {
-                rotatedRect.left = rect.top
-                rotatedRect.top = metrics.widthPixels - rect.right
-                rotatedRect.right = rect.bottom
-                rotatedRect.bottom = metrics.widthPixels - rect.left
-            }
-            Surface.ROTATION_180 -> {
-                rotatedRect.left = metrics.widthPixels - rect.right
-                rotatedRect.top = metrics.heightPixels - rect.bottom
-                rotatedRect.right = metrics.widthPixels - rect.left
-                rotatedRect.bottom = metrics.heightPixels - rect.top
-            }
-            Surface.ROTATION_270 -> {
-                rotatedRect.left = metrics.heightPixels - rect.bottom
-                rotatedRect.top = rect.left
-                rotatedRect.right = metrics.heightPixels - rect.top
-                rotatedRect.bottom = rect.right
-            }
-        }
-
-        return rotatedRect
-    }
-
-    private fun addHighlight(rect: Rect) {
-        val highlight = View(this).apply {
-            setBackgroundColor(ContextCompat.getColor(context, R.color.highlight_color))
-            alpha = 0.3f
-            isClickable = false
-            isFocusable = false
-        }
-
-        val params = FrameLayout.LayoutParams(
-            rect.width(),
-            rect.height()
-        ).apply {
-            leftMargin = rect.left
-            topMargin = rect.top
-        }
-
-        translationOverlay.addView(highlight, params)
-        translatedViews[rect.hashCode() + 1000] = highlight
     }
 
     private fun showContextMenu(translation: TranslationService.TranslatedBlock, view: View) {
@@ -1154,11 +1143,10 @@ class OverlayService : Service() {
         }
     }
 
-    fun updateSettings(textSize: Float, opacity: Float, highlight: Boolean, alternativeStyle: Boolean) {
-        Log.d(TAG, "Updating settings: textSize=$textSize, opacity=$opacity, highlight=$highlight, alternativeStyle=$alternativeStyle")
+    fun updateSettings(textSize: Float, opacity: Float, alternativeStyle: Boolean) {
+        Log.d(TAG, "Updating settings: textSize=$textSize, opacity=$opacity, alternativeStyle=$alternativeStyle")
         textSizeMultiplier = textSize
         overlayOpacity = opacity
-        highlightOriginalText = highlight
         useAlternativeStyle = alternativeStyle
 
         // Refresh overlays with new settings

@@ -542,7 +542,7 @@ flowchart LR
 > **清理进度（截至 2026-06，step 1 已完成）**：#11/#13–#21/#24–#28/#30–#35/#37/#38/#40/#41/#42 全部完成，含 2 个真 bug（#28 snap 泄漏、#32 observer 崩溃）。整体净删 ~600 行死代码。
 > **已实测通过**：#28（框选+狂按，内存平稳）、#32（停止→重开不残留）、#34（转屏 in-place 框贴原文）、#37（长按同画面得不同译文）。
 > **待实测**：#29（后台强杀进程，确认不出无授权僵尸）。
-> **剩余 step 2（见 §12.2）**：#12 决策、#15 OCRProcessor cleanup 可重建版、#22 clearCache 接 UI、#23 区域通信改静态、#36+#39 合并模式高亮重设计。
+> **剩余 step 2（见 §12.2）**：#12 决策、#15 OCRProcessor cleanup 可重建版、#22 clearCache 接 UI、#23 区域通信改静态。（#36+#39 已处理：删除"高亮原文"功能）
 > **新发现并已修**：#42（MainActivity 目标语言 spinner 缺 onItemSelectedListener，目标语言改了不保存——已加 listener + `updateTargetLanguage`）。
 > **顺带架构调整**：语言设置统一到 MainActivity（设置页 SettingsActivity 的语言 spinner + 布局已移除）；FORCE_OCR 改为长按真正 bypassCache 重译。
 
@@ -600,7 +600,7 @@ flowchart LR
 |---|---|---|
 | 32 | `translationData` observer 未 `removeObserver`，重建叠加多个 | **最危险**：service 重建后一次更新多次触发 `updateOverlays`，可能操作已销毁视图 → 崩溃 + 实例泄漏 |
 | 28 | 手动 sameAsLast 分支 OcrSnapshot 未回收 | 框选时每次"手动重试相同文字"泄漏一张裁剪 bitmap |
-| 39 | 合并模式"高亮原文"用屏幕坐标塞进小浮层 | 合并模式 + 高亮开启时布局错乱（框被撑大、高亮错位） |
+| ~~39~~ | ✅ 已修（删除"高亮原文"功能，连带清掉 #36 `getRotatedRect`） | — |
 
 **🟠 资源清理不彻底（不崩但泄漏/不规范）**
 
@@ -614,7 +614,7 @@ flowchart LR
 | # | 一句话 |
 |---|---|
 | 29 | `onStartCommand` 返回 `START_STICKY` 不适合（被杀重建成无授权僵尸，应 `START_NOT_STICKY`） |
-| 36 | `getRotatedRect` 横屏旋转变换可能多余/出错（需横屏实测） |
+| ~~36~~ | ✅ 已随 #39 删除 |
 | 37 | `ManualKind.FORCE_OCR` 与 AUTO 行为差异微小、"强制"语义与"会用缓存"相悖 |
 | 12 | `llmApiEndpoint` 偏好 UI 可改但运行时不读取 |
 
@@ -650,7 +650,7 @@ flowchart LR
 | 14 | `OCRProcessor` rotation 死字段 |
 | ~~34~~ | ✅ 已修：删 `setupOrientationListener` 路径，统一走 `rotationReceiver`（SCS 广播）。需转屏实测 |
 | 35 | `adjustRectForRotation` 死代码 + 重复 |
-| 36 | `getRotatedRect` 横屏变换存疑 |
+| ~~36~~ | ✅ 已随 #39 删除 |
 
 **⚫ 小瑕疵（无害，顺手清理）**
 
@@ -674,9 +674,9 @@ flowchart LR
 | ~~28~~ | ~~手动 sameAsLast 分支 OcrSnapshot 泄漏~~ | ✅ **已修**：sameAsLast 分支 `processBlocks` 后补 `snap.recycle()`（frame 已被 processBlocks 回收，snap.recycle 经 `!isRecycled` 守卫只回收 cropped，安全）。建议仍做一次"框选+手动重试"回归 | — |
 | 29 | `onStartCommand` 返回值改 `START_NOT_STICKY` | 改重启策略影响"被杀后行为"，需实测 | 改后实测后台被杀场景 |
 | ~~32~~ | ~~`translationData` observer 泄漏 + 重建多次触发~~ | ✅ **已修**：observer 提为具名字段 `translationObserver`（`OverlayService.kt:79`），onCreate `observeForever(translationObserver)`、onDestroy `removeObserver(translationObserver)`。建议测"停止→重开翻译→触发"确认不崩、不重复渲染 | — |
-| 36 | `getRotatedRect` 横屏旋转变换 | **依附于 #39**：getRotatedRect 唯一调用方是合并模式"高亮原文"（addHighlight），而该功能本身 broken（#39）。无论 #39 选删除还是重设计，getRotatedRect 都会被一并清掉，单独修正它无意义。in-place 译文定位（已转屏实测正常）不经过它 | 随 #39 处理：删高亮功能则连 getRotatedRect 一起删；重设计则坐标逻辑重写、大概率也不需要它 |
+| ~~36~~ | ~~`getRotatedRect` 横屏旋转变换~~ | ✅ **已随 #39 删除**：高亮功能整体移除，`getRotatedRect` 唯一调用方消失，一并删掉 | — |
 | ~~37~~ | ~~`ManualKind.FORCE_OCR` 语义~~ | ✅ **已修**：选方案"长按=强制重译"。`translateSnapshot` 加 `bypassCache` 形参并透传 translateText；handleManualRequest else 分支 `bypassCache=(kind==FORCE_OCR)`。长按现在真正绕过缓存重译。建议：enum 可进一步改名 `FORCE_RETRANSLATE` 更准（注释 133/572 仍写"re-run OCR"），测长按同画面得新译文 | — |
-| 39 | 合并模式"高亮原文"布局错乱 | 真 bug，但要重新设计（高亮应在独立全屏层），改动面大 | 高亮改画在独立全屏浮层，或合并模式禁用该功能 |
+| ~~39~~ | ~~合并模式"高亮原文"布局错乱~~ | ✅ **已修（选方案：删除该功能）**：功能价值低且坐标系不匹配，整体移除而非重设计。删 `highlightOriginalText` 字段/prefs、高亮 block、`getRotatedRect`、`addHighlight`、`updateSettings` 的 `highlight` 形参；连带删 `KEY_HIGHLIGHT_ORIGINAL`、SettingsActivity 开关读写 + intent extra、`switchHighlightOriginal` 布局、`highlight_original_text`/`highlight` 字符串、`highlight_color` 颜色 | — |
 | 12 | `llmApiEndpoint` 恢复读取 vs 移除 | 若做"自定义端点"是 new feature（需协议选择+验证），非清理 | 决定移除（step1）或作为 feature 设计（step2） |
 | 22 | `TranslationCache.clearCache()` + `deleteAll()` 待接入 UI | 逻辑完整、零调用，但"清除缓存"是合理功能（不删，留作 feature 候选） | 接入 Settings 的"清除缓存"按钮（new feature） |
 | 23 | 区域通信方式改静态方法 | 改运行时通信路径（OverlayService `startService(action)` → 静态方法），改错区域功能就坏，需测"框选→生效"。#24 死接收器已在 step1 删除 | SCS 加 `setTranslationArea(rect)` 静态方法（仿 `requestManualTranslation`），OverlayService `sendAreaToCapture` 改调它，删 `onStartCommand` 的 ACTION_SET/CLEAR 分支 |

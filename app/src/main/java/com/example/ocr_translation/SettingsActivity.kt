@@ -28,6 +28,19 @@ class SettingsActivity : AppCompatActivity() {
     // across app updates and the file content URI doesn't expire.
     private lateinit var pickCustomFont: ActivityResultLauncher<Array<String>>
 
+    private var currentProvider = LlmProvider.CHATGPT
+    private var currentCodes: List<String> = emptyList()   // 当前公司的模型码（save 时按下标取）
+
+    private fun populateModels(provider: LlmProvider, selectCode: String? = null) {
+        val names = resources.getStringArray(R.array.models)
+        val codes = resources.getStringArray(R.array.model_codes)
+        val idx = codes.indices.filter { LlmProvider.fromModel(codes[it]) == provider }
+        currentCodes = idx.map { codes[it] }
+        binding.spinnerModel.adapter = android.widget.ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item, idx.map { names[it] })
+        val sel = selectCode?.let { currentCodes.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+        binding.spinnerModel.setSelection(sel)
+    }
     companion object {
         private const val TAG = "SettingsActivity"
         const val EXTRA_SECTION = "section"
@@ -115,11 +128,13 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun loadSettings() {
         // LLM API settings
-        binding.editApiKey.setText(preferencesManager.llmApiKey)
         binding.editSystemPrompt.setText(preferencesManager.systemPrompt)
         binding.editUserPrompt.setText(preferencesManager.userPrompt)
-        binding.spinnerModel.setSelection(getModelPosition(preferencesManager.modelName))
+        currentProvider = LlmProvider.fromModel(preferencesManager.modelName)
+        binding.spinnerProvider.setSelection(currentProvider.ordinal)
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
+        populateModels(currentProvider, preferencesManager.modelName)
+        binding.editApiKey.setText(preferencesManager.getApiKey(currentProvider))
 
         // Capture settings
         // Snap to the slider's step grid (0.2 + k*0.1) so a stale off-grid value can't crash the Slider
@@ -131,7 +146,6 @@ class SettingsActivity : AppCompatActivity() {
         // Display settings
         binding.sliderTextSize.value = preferencesManager.textSizeMultiplier
         binding.sliderOverlayOpacity.value = preferencesManager.overlayOpacity
-        binding.switchHighlightOriginal.isChecked = preferencesManager.highlightOriginalText
         binding.switchAlternativeStyle.isChecked = preferencesManager.useAlternativeStyle
         binding.switchShowAreaBorder.isChecked = preferencesManager.showAreaBorder
         binding.spinnerFontColor.setSelection(colorIndex(preferencesManager.translationTextColor))
@@ -140,6 +154,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchInPlaceMode.isChecked = preferencesManager.inPlaceMode
         binding.switchUseAccessibility.isChecked = preferencesManager.useAccessibility
         binding.spinnerFont.setSelection(fontIndex(preferencesManager.translationFont))
+        binding.switchMergeOverlap.isChecked = preferencesManager.mergeOverlapBoxes
 
         // Control panel styling
         binding.spinnerControlPanelOrientation.setSelection(
@@ -155,6 +170,7 @@ class SettingsActivity : AppCompatActivity() {
 
         // Cache settings
         binding.sliderMaxCache.value = preferencesManager.maxCacheEntries.toFloat()
+        binding.sliderMaxTokens.value = preferencesManager.maxTokens.toFloat()
         binding.sliderCacheTtl.value = preferencesManager.cacheTtlHours.toFloat()
 
         // History settings
@@ -210,6 +226,19 @@ class SettingsActivity : AppCompatActivity() {
             resetSettings()
         }
 
+        binding.spinnerProvider.onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
+                    val np = LlmProvider.values()[pos]
+                    if (np == currentProvider) return
+                    preferencesManager.setApiKey(currentProvider, binding.editApiKey.text.toString()) // 先存旧公司的 key
+                    currentProvider = np
+                    populateModels(np)                                   // 切到新公司模型（选第一个）
+                    binding.editApiKey.setText(preferencesManager.getApiKey(np))
+                }
+                override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+            }
+
         // Open system accessibility settings so the user can enable the enhanced-OCR service
         binding.btnEnableAccessibility.setOnClickListener {
             try {
@@ -237,6 +266,10 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.sliderMaxCache.addOnChangeListener { _, value, _ ->
             binding.textMaxCacheValue.text = value.toInt().toString()
+        }
+
+        binding.sliderMaxTokens.addOnChangeListener { _, value, _ ->
+            binding.textMaxTokensValue.text = value.toInt().toString()
         }
 
         binding.sliderCacheTtl.addOnChangeListener { _, value, _ ->
@@ -326,7 +359,9 @@ class SettingsActivity : AppCompatActivity() {
             models
         )
 
-        binding.spinnerModel.adapter = modelAdapter
+        binding.spinnerProvider.adapter = android.widget.ArrayAdapter(
+            this, android.R.layout.simple_spinner_dropdown_item,
+            LlmProvider.values().map { it.displayName })
 
         // Overlay colour + fold-favorite spinners
         val colors = resources.getStringArray(R.array.overlay_colors)
@@ -449,18 +484,18 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun saveSettings() {
-        Log.d("SettingsActivity", "saveSettings() called") // 添加这行日志
-        // Get language codes
-        val modelCodes = resources.getStringArray(R.array.model_codes)
+        Log.d("SettingsActivity", "saveSettings() called")
 
         // LLM API settings
-        preferencesManager.llmApiKey = binding.editApiKey.text.toString()
+        preferencesManager.setApiKey(currentProvider, binding.editApiKey.text.toString())
+        if (currentCodes.isNotEmpty())
+            preferencesManager.modelName = currentCodes[binding.spinnerModel.selectedItemPosition]
         preferencesManager.systemPrompt =
             binding.editSystemPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_SYSTEM_PROMPT }
         preferencesManager.userPrompt =
             binding.editUserPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_USER_PROMPT }
-        preferencesManager.modelName = modelCodes[binding.spinnerModel.selectedItemPosition]
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
+        preferencesManager.maxTokens = binding.sliderMaxTokens.value.toInt()
 
         // Capture settings
         preferencesManager.captureInterval = (binding.sliderCaptureInterval.value * 1000).toLong()
@@ -469,7 +504,6 @@ class SettingsActivity : AppCompatActivity() {
         // Display settings
         preferencesManager.textSizeMultiplier = binding.sliderTextSize.value
         preferencesManager.overlayOpacity = binding.sliderOverlayOpacity.value
-        preferencesManager.highlightOriginalText = binding.switchHighlightOriginal.isChecked
         preferencesManager.useAlternativeStyle = binding.switchAlternativeStyle.isChecked
         preferencesManager.showAreaBorder = binding.switchShowAreaBorder.isChecked
         val colorValues = resources.getStringArray(R.array.overlay_color_values)
@@ -480,6 +514,7 @@ class SettingsActivity : AppCompatActivity() {
         val foldValues = resources.getStringArray(R.array.fold_option_values)
         preferencesManager.foldFavorite = foldValues[binding.spinnerFoldFavorite.selectedItemPosition]
         preferencesManager.inPlaceMode = binding.switchInPlaceMode.isChecked
+        preferencesManager.mergeOverlapBoxes = binding.switchMergeOverlap.isChecked
         preferencesManager.useAccessibility = binding.switchUseAccessibility.isChecked
         preferencesManager.translationFont =
             resources.getStringArray(R.array.font_values)[binding.spinnerFont.selectedItemPosition]
@@ -527,7 +562,6 @@ class SettingsActivity : AppCompatActivity() {
         val overlayIntent = Intent("com.example.ocr_translation.ACTION_UPDATE_OVERLAY_SETTINGS")
         overlayIntent.putExtra("textSize", preferencesManager.textSizeMultiplier)
         overlayIntent.putExtra("opacity", preferencesManager.overlayOpacity)
-        overlayIntent.putExtra("highlight", preferencesManager.highlightOriginalText)
         overlayIntent.putExtra("alternativeStyle", preferencesManager.useAlternativeStyle)
         overlayIntent.putExtra("showAreaBorder", preferencesManager.showAreaBorder)
         sendBroadcast(overlayIntent)

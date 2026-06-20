@@ -23,7 +23,6 @@
     <color name="overlay_background">#E6222222</color>
     <color name="overlay_border">#44FFFFFF</color>
     <color name="translation_text_color">#FFFFFF</color>
-    <color name="highlight_color">#E4FF4081</color>
 
     <!-- Control panel colors -->
     <color name="control_panel_background">#CC333333</color>

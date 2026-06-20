@@ -15,12 +15,12 @@ class PreferencesManager private constructor(context: Context) {
     companion object {
         private const val PREFS_NAME = "screen_translator_prefs"
         const val DEFAULT_SYSTEM_PROMPT =
-            "You are a professional translator. Translate naturally and accurately, preserving tone and formatting."
+            "你是专业的翻译引擎。只输出译文本身，绝不添加解释、注释、读音、假名标注、备注或任何多余文字。"
         const val DEFAULT_USER_PROMPT =
-            "Translate the following text from {source} to {target}.\n" +
-                    "Maintain the original formatting and layout as much as possible.\n" +
-                    "Keep the BLOCK_XXX: prefixes in the output but don't translate them.\n\n" +
-                    "Text to translate:\n{text}\n\nTranslation:"
+            "把下面每个块从 {source} 翻译成 {target}。\n" +
+                    "保留每个 BLOCK_XXX: 前缀原样不动，在其后的同一行只写译文。\n" +
+                    "除译文外不要输出任何东西。若某块文字不清楚，直接给出你认为最贴切的一种译法即可。\n\n" +
+                    "{text}"
         private const val KEY_TRANSLATION_ACTIVE = "translation_active"
         private const val KEY_SOURCE_LANGUAGE = "source_language"
         private const val KEY_TARGET_LANGUAGE = "target_language"
@@ -32,7 +32,6 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
         private const val KEY_TEXT_SIZE_MULTIPLIER = "text_size_multiplier"
         private const val KEY_OVERLAY_OPACITY = "overlay_opacity"
-        private const val KEY_HIGHLIGHT_ORIGINAL = "highlight_original"
         private const val KEY_USE_ALTERNATIVE_STYLE = "use_alternative_style"
         private const val KEY_MAX_CACHE_ENTRIES = "max_cache_entries"
         private const val KEY_CACHE_TTL_HOURS = "cache_ttl_hours"
@@ -42,7 +41,8 @@ class PreferencesManager private constructor(context: Context) {
         private const val PREF_ACTIVE_AREA_RIGHT = "active_area_right"
         private const val PREF_ACTIVE_AREA_BOTTOM = "active_area_bottom"
         private const val PREF_HAS_ACTIVE_AREA = "has_active_area"
-
+        private const val KEY_MAX_TOKENS = "max_tokens"
+        private const val KEY_MERGE_OVERLAP = "merge_overlap_boxes"
 
         @Volatile
         private var INSTANCE: PreferencesManager? = null
@@ -88,15 +88,17 @@ class PreferencesManager private constructor(context: Context) {
         }
 
     /** API key, stored in EncryptedSharedPreferences (see [SecureStorage]). */
-    var llmApiKey: String
-        get() = SecureStorage.getEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE) ?: ""
-        set(value) {
-            if (value.isEmpty()) {
-                SecureStorage.removeEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE)
-            } else {
-                SecureStorage.setEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE, value)
-            }
-        }
+    fun getApiKey(provider: LlmProvider): String =
+        SecureStorage.getEncryptedValue(appContext, provider.secureKey) ?: ""
+
+    fun setApiKey(provider: LlmProvider, value: String) {
+        if (value.isBlank()) SecureStorage.removeEncryptedValue(appContext, provider.secureKey)
+        else SecureStorage.setEncryptedValue(appContext, provider.secureKey, value.trim())
+    }
+
+    /** 运行时用：当前激活模型对应公司的 key。 */
+    val activeApiKey: String
+        get() = getApiKey(LlmProvider.fromModel(modelName))
 
     var modelName: String
         get() = prefs.getString(KEY_MODEL_NAME, "gpt-4-turbo") ?: "gpt-4-turbo"
@@ -121,10 +123,6 @@ class PreferencesManager private constructor(context: Context) {
     var overlayOpacity: Float
         get() = prefs.getFloat(KEY_OVERLAY_OPACITY, 0.8f)
         set(value) = prefs.edit { putFloat(KEY_OVERLAY_OPACITY, value) }
-
-    var highlightOriginalText: Boolean
-        get() = prefs.getBoolean(KEY_HIGHLIGHT_ORIGINAL, true)
-        set(value) = prefs.edit { putBoolean(KEY_HIGHLIGHT_ORIGINAL, value) }
 
     var useAlternativeStyle: Boolean
         get() = prefs.getBoolean(KEY_USE_ALTERNATIVE_STYLE, false)
@@ -152,6 +150,10 @@ class PreferencesManager private constructor(context: Context) {
     var inPlaceMode: Boolean
         get() = prefs.getBoolean("in_place_mode", false)
         set(value) = prefs.edit { putBoolean("in_place_mode", value) }
+
+    var mergeOverlapBoxes: Boolean
+        get() = prefs.getBoolean(KEY_MERGE_OVERLAP, false)
+        set(value) = prefs.edit { putBoolean(KEY_MERGE_OVERLAP, value) }
 
     // Enhanced OCR: read text from the accessibility node tree instead of screen-capture OCR.
     // Exact for native apps; has no effect on canvas/GL games (which expose no text nodes).
@@ -218,6 +220,10 @@ class PreferencesManager private constructor(context: Context) {
         get() = prefs.getInt(KEY_MAX_CACHE_ENTRIES, 100)
         set(value) = prefs.edit { putInt(KEY_MAX_CACHE_ENTRIES, value) }
 
+    var maxTokens: Int
+        get() = prefs.getInt(KEY_MAX_TOKENS, 1024)
+        set(value) = prefs.edit { putInt(KEY_MAX_TOKENS, value) }
+
     var cacheTtlHours: Int
         get() = prefs.getInt(KEY_CACHE_TTL_HOURS, 24)
         set(value) = prefs.edit { putInt(KEY_CACHE_TTL_HOURS, value) }
@@ -257,22 +263,18 @@ class PreferencesManager private constructor(context: Context) {
             remove(KEY_AUTO_CAPTURE_ENABLED)
             remove(KEY_TEXT_SIZE_MULTIPLIER)
             remove(KEY_OVERLAY_OPACITY)
-            remove(KEY_HIGHLIGHT_ORIGINAL)
+            remove(KEY_MAX_TOKENS)
             remove(KEY_USE_ALTERNATIVE_STYLE)
             remove(KEY_MAX_CACHE_ENTRIES)
             remove(KEY_CACHE_TTL_HOURS)
             remove(KEY_KEEP_HISTORY_DAYS)
+            remove(KEY_MERGE_OVERLAP)
             // Decide if you want to reset translation_active etc. too
         }
         // Also clear the encrypted API key
         SecureStorage.removeEncryptedValue(appContext, KEY_LLM_API_KEY_SECURE)
         // Applying default values immediately might be better depending on your logic
         // Or rely on the getters providing defaults when the key is missing.
-    }
-
-    fun areSettingsComplete(): Boolean {
-        // The endpoint is currently chosen by model name, not user input — only the API key is required.
-        return llmApiKey.isNotEmpty()
     }
 
     fun saveActiveTranslationArea(rectF: android.graphics.RectF) {
