@@ -870,6 +870,13 @@ class OverlayService : Service() {
     private fun renderInPlace(translations: List<TranslationService.TranslatedBlock>) {
         inPlaceOverlay.removeAllViews()
         if (translations.isEmpty()) { inPlaceOverlay.visibility = View.GONE; return }
+        inPlaceOverlay.visibility = View.VISIBLE
+        if (!inPlaceOverlay.isLaidOut) {
+            // 首帧还没布局，getLocationOnScreen 会返回 (0,0) → 框左上偏。
+            // 等布局完成后再渲染一次（isLaidOut 之后永久为 true，只延后这一次）。
+            inPlaceOverlay.post { renderInPlace(translations) }
+            return
+        }
         val prefs = PreferencesManager.getInstance(this)
         val loc = IntArray(2)
         inPlaceOverlay.getLocationOnScreen(loc)
@@ -972,6 +979,8 @@ class OverlayService : Service() {
 
     private fun updateOverlays(translations: List<TranslationService.TranslatedBlock>) {
         if (isPaused) return
+        if (::translationOverlay.isInitialized) translationOverlay.alpha = 1f
+        if (::inPlaceOverlay.isInitialized)   inPlaceOverlay.alpha = 1f
         PerfTrace.displayed()
         if (PreferencesManager.getInstance(this).inPlaceMode) {
             translationOverlay.visibility = View.GONE

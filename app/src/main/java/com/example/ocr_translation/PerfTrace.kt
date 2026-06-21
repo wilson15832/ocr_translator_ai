@@ -16,15 +16,16 @@ object PerfTrace {
     private var pending = false
     private fun now() = System.currentTimeMillis()
 
-    fun ocrStart() { t0 = now(); pending = false }
-    fun ocrDone()  { if (t0 != 0L) ocrMs = now() - t0 }
-    fun netStart() { netT0 = now() }
-    fun netDone()  { if (netT0 != 0L) netMs = now() - netT0 }
+    fun ocrStart() { if (!BuildConfig.DEBUG) return; t0 = now(); pending = false }
+    fun ocrDone()  { if (!BuildConfig.DEBUG) return; if (t0 != 0L) ocrMs = now() - t0 }
+    fun netStart() { if (!BuildConfig.DEBUG) return; netT0 = now() }
+    fun netDone()  { if (!BuildConfig.DEBUG) return; if (netT0 != 0L) netMs = now() - netT0 }
     /** 一条非空译文即将送显——标记本周期需计时。 */
-    fun resultPending() { pending = true }
+    fun resultPending() { if (!BuildConfig.DEBUG) return; pending = true }
 
     /** 在 updateOverlays 入口调用：结果落屏时刻。 */
     fun displayed() {
+        if (!BuildConfig.DEBUG) return
         if (!pending || t0 == 0L) return
         pending = false
         val total = now() - t0

@@ -64,3 +64,13 @@
 -keep public class com.example.ocr_translation.AccessibilityTextService
 -keep public class com.example.ocr_translation.MainActivity
 -keep public class com.example.ocr_translation.SettingsActivity
+
+# --- Strip all logging in release (R8 optimize variant removes these calls + their args) ---
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+    public static *** wtf(...);
+}

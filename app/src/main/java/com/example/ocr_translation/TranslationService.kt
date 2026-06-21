@@ -57,7 +57,7 @@ class TranslationService private constructor(private val context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .callTimeout(40, TimeUnit.SECONDS)   // hard ceiling for the whole request
-        .eventListenerFactory { LlmLatencyListener() }
+        .apply { if (BuildConfig.DEBUG) eventListenerFactory { LlmLatencyListener() } }
         .build()
 
     // Gson for JSON parsing
@@ -85,7 +85,8 @@ class TranslationService private constructor(private val context: Context) {
                     "https://api.deepseek.com/chat/completions", model, config.maxTokens)
             model.startsWith("gpt") ->
                 OpenAiCompatibleClient(client, gson, apiKey,
-                    "https://api.openai.com/v1/chat/completions", model, config.maxTokens)
+//                    "https://api.ooapi.cc/v1/chat/completions", model, config.maxTokens)
+            "https://api.openai.com/v1/chat/completions", model, config.maxTokens)
             model.startsWith("gemini") ->
                 GeminiClient(client, gson, apiKey,
                     "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, config.maxTokens)
@@ -104,12 +105,14 @@ class TranslationService private constructor(private val context: Context) {
      */
     fun warmUp() {
         loadConfig(PreferencesManager.getInstance(context))
-        if (config.useLocalModel || apiKey.isBlank()) return   // 本地模型/未配 key 无需预热
+        if (config.useLocalModel || apiKey.isBlank()) return
 
         val host = when {
             config.modelName.startsWith("deepseek") -> "https://api.deepseek.com/"
             config.modelName.startsWith("gpt")      -> "https://api.openai.com/"
-            else                                    -> "https://generativelanguage.googleapis.com/"
+            config.modelName.startsWith("gemini")   -> "https://generativelanguage.googleapis.com/"
+            config.modelName.startsWith("claude")   -> "https://api.anthropic.com/"
+            else -> return   // 未知模型不预热（别再默认连 Gemini）
         }
 
         val request = Request.Builder().url(host).head().build()

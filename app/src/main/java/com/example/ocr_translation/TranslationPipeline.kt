@@ -16,6 +16,7 @@ class TranslationPipeline(
     private val translator: TranslationService,
     private val changeDetector: ChangeDetector = ChangeDetector(),
     private val onWillTranslate: () -> Unit = {},
+    private val onUnchanged: () -> Unit = {},
     private val onResult: (List<TranslationService.TranslatedBlock>) -> Unit
 ) {
 
@@ -110,6 +111,7 @@ class TranslationPipeline(
             val changed = changeDetector.hasChanged(blocks)
             if (!force && !changed) {
                 Log.d(TAG, "Screen text ~unchanged — skipping translation request")
+                onUnchanged()
                 return
             }
 

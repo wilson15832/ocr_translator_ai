@@ -131,9 +131,9 @@
     <string name="save_folder_unset">Folder access lost — please pick again</string>
 
     <!-- Round 4: custom font -->
-    <string name="custom_font_section">Custom font</string>
-    <string name="custom_font_load">Load custom font (.ttf / .otf)</string>
-    <string name="custom_font_clear">Clear custom font</string>
+    <string name="custom_font_section">Custom font (.ttf / .otf)</string>
+    <string name="custom_font_load">Load font</string>
+    <string name="custom_font_clear">Clear font</string>
     <string name="custom_font_current">Custom font: %1$s</string>
     <string name="custom_font_none">No custom font loaded</string>
     <string name="custom_font_load_failed">Couldn\'t load that font file</string>

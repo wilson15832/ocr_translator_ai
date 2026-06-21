@@ -76,6 +76,7 @@ class ScreenCaptureService : Service() {
     // that finds unchanged text can restore the box without re-translating (no flicker, no API call).
     private var lastShownResults: List<TranslationService.TranslatedBlock> = emptyList()
     private var shownOcrSig = ""
+    private var skipNextChange = false
     // Tap-triggered scanning state: after the user taps, the screen often keeps showing the OLD
     // text for a couple of seconds (e.g. FGO's ~3s post-choice load). During that window we must
     // NOT restore the previous translation from cache (it's stale to the user's choice) and must
@@ -202,7 +203,12 @@ class ScreenCaptureService : Service() {
         translationCache = TranslationCache(applicationContext)
         pipeline = TranslationPipeline(
             translationService,
-            onWillTranslate = { OverlayService.clearShownTranslation() }
+            onWillTranslate = {
+                if (PreferencesManager.getInstance(this).inPlaceMode) OverlayService.clearShownTranslation()
+            },
+            onUnchanged = {
+                if (PreferencesManager.getInstance(this).inPlaceMode) OverlayService.fadeInAfterCapture()
+            }
         ) { results ->
             // Drop the result if the user tapped while this translation was running
             if (translationStartSession == sessionId) {
@@ -646,26 +652,31 @@ class ScreenCaptureService : Service() {
 
     // One real translation pass: hide our overlay, grab a clean frame, restore, then OCR/translate.
     private suspend fun performTranslation(force: Boolean) {
-//        OverlayService.hideForCapture()
-//        kotlinx.coroutines.delay(120)
-//        val frame = captureScreen()
-//        OverlayService.showAfterCapture()
         OverlayService.fadeOutForCapture()    // view.alpha = 0f
         kotlinx.coroutines.delay(33)
         val frame = captureScreen()
-        OverlayService.fadeInAfterCapture()   // view.alpha = 1f
+//        OverlayService.fadeInAfterCapture()   // view.alpha = 1f
         frame?.let { processScreenCapture(it, force) }
         // Re-baseline against the screen now showing our box, so we detect the next real change
         lastFingerprint = null
+        skipNextChange = true
     }
 
     // Tiny downscaled snapshot used to detect on-screen change without hiding the overlay
-    private fun fingerprint(bmp: Bitmap): IntArray {
+    private fun fingerprint(bmp: Bitmap, area: RectF? = null): IntArray {
         return try {
-            val small = Bitmap.createScaledBitmap(bmp, 32, 18, false)
+            val src = if (area != null && area.width() > 0 && area.height() > 0) {
+                val l = area.left.toInt().coerceAtLeast(0)
+                val t = area.top.toInt().coerceAtLeast(0)
+                val r = area.right.toInt().coerceAtMost(bmp.width)
+                val b = area.bottom.toInt().coerceAtMost(bmp.height)
+                if (r > l && b > t) Bitmap.createBitmap(bmp, l, t, r - l, b - t) else bmp
+            }else bmp
+            val small = Bitmap.createScaledBitmap(src, 32, 18, false)
             val px = IntArray(32 * 18)
             small.getPixels(px, 0, 32, 0, 0, 32, 18)
             small.recycle()
+            if (src !== bmp) src.recycle()
             px
         } catch (e: Exception) {
             IntArray(0)
@@ -690,8 +701,12 @@ class ScreenCaptureService : Service() {
     // Merged mode: translate when the screen settles after a change
     private suspend fun mergedAutoStep() {
         val raw = captureScreen() ?: return
-        val changed = fingerprintChanged(fingerprint(raw))
+        val changed = fingerprintChanged(fingerprint(raw, activeTranslationArea))
         raw.recycle()
+        if (changed && skipNextChange) {   // 这是翻译后的重新基线，不是真变化
+            skipNextChange = false
+            return                          // 基线已更新，不重译
+        }
         if (changed) {
             stableCount = 0
             pendingRetranslate = true
@@ -703,7 +718,6 @@ class ScreenCaptureService : Service() {
             }
         }
     }
-
     // In-place mode: scan (box hidden) until OCR text is stable, show, then stay until a real change
     private suspend fun inPlaceAutoStep() {
         val prefs = PreferencesManager.getInstance(this)
@@ -962,7 +976,7 @@ class ScreenCaptureService : Service() {
                 val bufferWidth = screenWidth + rowPadding / pixelStride
                 val bufferHeight = screenHeight
 
-                Log.d("ScreenCaptureService", "Creating bitmap with buffer dimensions: $bufferWidth x $bufferHeight (screen: $screenWidth x $screenHeight)")
+//                Log.d("ScreenCaptureService", "Creating bitmap with buffer dimensions: $bufferWidth x $bufferHeight (screen: $screenWidth x $screenHeight)")
 
                 try {
                     val raw = Bitmap.createBitmap(
@@ -1084,6 +1098,7 @@ class ScreenCaptureService : Service() {
     override fun onDestroy() {
         Log.d("ScreenCaptureService", "onDestroy called.")
         stopCapture() // 确保停止
+        autoMode = false
         orientationListener.disable()
         serviceScope.cancel()
 

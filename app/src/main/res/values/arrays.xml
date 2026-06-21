@@ -53,6 +53,8 @@
         <item>Gemini 3.1 Pro</item>
         <item>Gemini 3.5 Flash</item>
         <item>Gemini 3.1 Flash Lite</item>
+        <item>Gemini 2.5 Pro</item>
+        <item>Gemini 2.5 Flash</item>
         <item>GPT-5.5</item>
         <item>GPT-5.4 Mini</item>
         <item>GPT-5.4 Nano</item>
@@ -70,6 +72,8 @@
         <item>gemini-3.1-pro</item>
         <item>gemini-3.5-flash</item>
         <item>gemini-3.1-flash-lite</item>
+        <item>gemini-2.5-pro</item>
+        <item>gemini-2.5-flash</item>
         <item>gpt-5.5</item>
         <item>gpt-5.4-mini</item>
         <item>gpt-5.4-nano</item>
