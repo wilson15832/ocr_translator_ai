@@ -32,6 +32,9 @@
     <string name="display_settings">Overlay Settings</string>
     <string name="text_size">Text Size</string>
     <string name="overlay_opacity">Overlay Opacity</string>
+    <string name="gif_opacity">Gif Opacity</string>
+    <string name="gif_size">Gif size</string>
+    <string name="gif_enabled">Loading animation</string>
     <string name="use_alternative_style">Use speech bubble style</string>
     <string name="cache_settings">Cache Settings</string>
     <string name="max_cache_entries">Maximum Cache Entries</string>

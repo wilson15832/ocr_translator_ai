@@ -43,6 +43,10 @@ class PreferencesManager private constructor(context: Context) {
         private const val PREF_HAS_ACTIVE_AREA = "has_active_area"
         private const val KEY_MAX_TOKENS = "max_tokens"
         private const val KEY_MERGE_OVERLAP = "merge_overlap_boxes"
+        private const val KEY_SPINNER_ALPHA = "spinner_alpha"
+        private const val KEY_SPINNER_SIZE_DP = "spinner_size_dp"
+        private const val KEY_SPINNER_X = "spinner_x"
+        private const val KEY_SPINNER_Y = "spinner_y"
 
         @Volatile
         private var INSTANCE: PreferencesManager? = null
@@ -239,6 +243,23 @@ class PreferencesManager private constructor(context: Context) {
     var preferSpeed: Boolean
         get() = prefs.getBoolean("prefer_speed", false)
         set(value) = prefs.edit { putBoolean("prefer_speed", value) }
+
+    var spinnerAlpha: Float
+        get() = prefs.getFloat(KEY_SPINNER_ALPHA, 0.8f)
+        set(v) = prefs.edit { putFloat(KEY_SPINNER_ALPHA, v) }
+    var spinnerSizeDp: Int
+        get() = prefs.getInt(KEY_SPINNER_SIZE_DP, 48)      // 默认较小
+        set(v) = prefs.edit { putInt(KEY_SPINNER_SIZE_DP, v) }
+    var spinnerX: Int                                       // 拖动位置，-1=未设→首帧算右下角
+        get() = prefs.getInt(KEY_SPINNER_X, -1)
+        set(v) = prefs.edit { putInt(KEY_SPINNER_X, v) }
+    var spinnerY: Int
+        get() = prefs.getInt(KEY_SPINNER_Y, -1)
+        set(v) = prefs.edit { putInt(KEY_SPINNER_Y, v) }
+
+    var spinnerEnabled: Boolean
+        get() = prefs.getBoolean("spinner_enabled", true)
+        set(v) = prefs.edit { putBoolean("spinner_enabled", v) }
 
     // --- Keep other methods if needed ---
     fun isTranslationActive(): Boolean {

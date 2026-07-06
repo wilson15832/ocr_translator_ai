@@ -77,10 +77,12 @@ object OCRProcessor {
     }
 
     private fun extractTextBlocks(visionText: Text): List<TextBlock> {
-        val out = ArrayList<TextBlock>(visionText.textBlocks.size)
+        val out = ArrayList<TextBlock>()
         for (block in visionText.textBlocks) {
-            val boundingBox = block.boundingBox ?: continue
-            out.add(TextBlock(text = block.text, boundingBox = boundingBox))
+            for (line in block.lines) {
+                val bb = line.boundingBox ?: continue
+                out.add(TextBlock(text = line.text, boundingBox = bb))
+            }
         }
         return out
     }

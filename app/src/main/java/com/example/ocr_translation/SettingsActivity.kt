@@ -144,6 +144,9 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchAutoCapture.isChecked = preferencesManager.autoCaptureEnabled
 
         // Display settings
+        binding.GifOpacity.value = preferencesManager.spinnerAlpha
+        binding.GifSize.value = preferencesManager.spinnerSizeDp.toFloat()
+        binding.switchGifEnabled.isChecked = preferencesManager.spinnerEnabled
         binding.sliderTextSize.value = preferencesManager.textSizeMultiplier
         binding.sliderOverlayOpacity.value = preferencesManager.overlayOpacity
         binding.switchAlternativeStyle.isChecked = preferencesManager.useAlternativeStyle
@@ -500,7 +503,10 @@ class SettingsActivity : AppCompatActivity() {
         // Capture settings
         preferencesManager.captureInterval = (binding.sliderCaptureInterval.value * 1000).toLong()
         preferencesManager.autoCaptureEnabled = binding.switchAutoCapture.isChecked
+        preferencesManager.spinnerEnabled = binding.switchGifEnabled.isChecked
 
+        preferencesManager.spinnerAlpha = binding.GifOpacity.value
+        preferencesManager.spinnerSizeDp = binding.GifSize.value.toInt()
         // Display settings
         preferencesManager.textSizeMultiplier = binding.sliderTextSize.value
         preferencesManager.overlayOpacity = binding.sliderOverlayOpacity.value

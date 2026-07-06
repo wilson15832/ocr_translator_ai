@@ -39,13 +39,16 @@ import android.util.DisplayMetrics
 import android.graphics.RectF
 import android.graphics.Canvas
 import android.graphics.Paint
-
+import android.graphics.drawable.AnimationDrawable
+import android.widget.ImageView
 
 class OverlayService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var controlPanel: View
     private lateinit var translationOverlay: FrameLayout
     private lateinit var inPlaceOverlay: FrameLayout
+    private val inPlaceLoc = IntArray(2)
+    private var inPlaceLocValid = false
     private var touchWatchView: View? = null
     private val captureHideHandler = Handler(Looper.getMainLooper())
     private var savedTransVis = View.VISIBLE
@@ -71,6 +74,10 @@ class OverlayService : Service() {
     private var initialOverlayY: Int = 0
     private var initialOverlayTouchX: Float = 0f
     private var initialOverlayTouchY: Float = 0f
+
+    private lateinit var spinnerOverlay: ImageView
+    private lateinit var spinnerParams: WindowManager.LayoutParams
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private lateinit var overlayLayoutParams: WindowManager.LayoutParams // <-- 添加这行声明
 
@@ -222,6 +229,9 @@ class OverlayService : Service() {
         }
 
         fun clearShownTranslation() { instance?.clearShownTranslationImpl() }
+
+        fun showSpinner() { instance?.showSpinnerImpl() }
+        fun hideSpinner() { instance?.hideSpinnerImpl() }
     }
 
     private val settingsReceiver = object : BroadcastReceiver() {
@@ -300,6 +310,7 @@ class OverlayService : Service() {
         createTranslationOverlay()
         createInPlaceOverlay()
         createTouchWatch()
+        createSpinnerOverlay()
 
         // Observe translation data
         translationData.observeForever(translationObserver)
@@ -841,6 +852,13 @@ class OverlayService : Service() {
         )
         try {
             windowManager.addView(inPlaceOverlay, params)
+            inPlaceOverlay.viewTreeObserver.addOnGlobalLayoutListener {
+                if (inPlaceOverlay.visibility == View.VISIBLE && inPlaceOverlay.width > 0) {
+                    inPlaceOverlay.getLocationOnScreen(inPlaceLoc)
+                    inPlaceLocValid = true
+                    Log.d(TAG, "inPlaceLoc cached: ${inPlaceLoc[0]}, ${inPlaceLoc[1]}")   // ← 顺手加，验证用
+                }
+            }
             inPlaceOverlay.visibility = View.GONE
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create in-place overlay", e)
@@ -871,15 +889,14 @@ class OverlayService : Service() {
         inPlaceOverlay.removeAllViews()
         if (translations.isEmpty()) { inPlaceOverlay.visibility = View.GONE; return }
         inPlaceOverlay.visibility = View.VISIBLE
-        if (!inPlaceOverlay.isLaidOut) {
-            // 首帧还没布局，getLocationOnScreen 会返回 (0,0) → 框左上偏。
-            // 等布局完成后再渲染一次（isLaidOut 之后永久为 true，只延后这一次）。
+        inPlaceOverlay.visibility = View.VISIBLE
+        if (!inPlaceLocValid) {
+            // 窗口还没被 WindowManager 定位过（首次显示），等布局回调把 loc 缓存好再渲染
             inPlaceOverlay.post { renderInPlace(translations) }
             return
         }
+        val loc = inPlaceLoc
         val prefs = PreferencesManager.getInstance(this)
-        val loc = IntArray(2)
-        inPlaceOverlay.getLocationOnScreen(loc)
         val screenW = if (inPlaceOverlay.width > 0) inPlaceOverlay.width
         else resources.displayMetrics.widthPixels
         val refH = translations.maxOf { it.boundingBox.height() }.coerceAtLeast(1)
@@ -905,9 +922,9 @@ class OverlayService : Service() {
         loc: IntArray, prefs: PreferencesManager
     ) {
         val rect = t.boundingBox
-        val hScale = (rect.height().toFloat() / refH).coerceIn(0.5f, 1f)
+        val hScale = 1f
         val origW = rect.width()
-        val factor = if (origW < screenW * 0.5f) 1.25f else 1.1f
+        val factor = if (origW < screenW * 0.2f) 2.0f else 1.1f
         val boxWidth = (origW * factor).toInt() + 8
         val bg = (if (t.bgColor != 0) t.bgColor else prefs.translationBgColor) or 0xFF000000.toInt()
         val padH = (12 * hScale).toInt().coerceAtLeast(4)
@@ -1157,7 +1174,11 @@ class OverlayService : Service() {
         textSizeMultiplier = textSize
         overlayOpacity = opacity
         useAlternativeStyle = alternativeStyle
-
+        val prefs = PreferencesManager.getInstance(this)
+        spinnerOverlay.alpha = prefs.spinnerAlpha
+        spinnerParams.width = dp(prefs.spinnerSizeDp)
+        spinnerParams.height = dp(prefs.spinnerSizeDp)
+        if (::spinnerOverlay.isInitialized) windowManager.updateViewLayout(spinnerOverlay, spinnerParams)
         // Refresh overlays with new settings
         translationData.value?.let { updateOverlays(it) }
     }
@@ -1227,6 +1248,72 @@ class OverlayService : Service() {
         Log.d(TAG, "Translation overlay touch listener set.")
     }
 
+    private fun createSpinnerOverlay() {
+        val prefs = PreferencesManager.getInstance(this)
+        val size = dp(prefs.spinnerSizeDp)
+        spinnerOverlay = ImageView(this).apply {
+            setImageResource(R.drawable.loading_anim)
+            scaleType = ImageView.ScaleType.FIT_CENTER      // 保持帧的宽高比
+            alpha = prefs.spinnerAlpha
+            visibility = View.GONE
+        }
+        val dm = resources.displayMetrics
+        spinnerParams = WindowManager.LayoutParams(
+            size, size, getOverlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = if (prefs.spinnerX >= 0) prefs.spinnerX else dm.widthPixels  - size - dp(16)
+            y = if (prefs.spinnerY >= 0) prefs.spinnerY else dm.heightPixels - size - dp(120)
+        }
+        setupSpinnerDrag()
+        try { windowManager.addView(spinnerOverlay, spinnerParams) } catch (e: Exception) { Log.e(TAG, "spinner add failed", e) }
+    }
+
+    private fun setupSpinnerDrag() {
+        var downX = 0; var downY = 0; var touchX = 0f; var touchY = 0f
+        spinnerOverlay.setOnTouchListener { _, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> { downX = spinnerParams.x; downY = spinnerParams.y; touchX = e.rawX; touchY = e.rawY; true }
+                MotionEvent.ACTION_MOVE -> {
+                    spinnerParams.x = (downX + (e.rawX - touchX)).toInt()
+                    spinnerParams.y = (downY + (e.rawY - touchY)).toInt()
+                    try { windowManager.updateViewLayout(spinnerOverlay, spinnerParams) } catch (_: Exception) {}
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val p = PreferencesManager.getInstance(this); p.spinnerX = spinnerParams.x; p.spinnerY = spinnerParams.y; true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun showSpinnerImpl() = mainHandler.post {
+        if (!::spinnerOverlay.isInitialized) return@post
+        if (!PreferencesManager.getInstance(this).spinnerEnabled) return@post
+
+        val dm = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(dm)
+        val size = spinnerParams.width
+        spinnerParams.x = spinnerParams.x.coerceIn(0, (dm.widthPixels  - size).coerceAtLeast(0))
+        spinnerParams.y = spinnerParams.y.coerceIn(0, (dm.heightPixels - size).coerceAtLeast(0))
+        try { windowManager.updateViewLayout(spinnerOverlay, spinnerParams) } catch (_: Exception) {}
+
+        spinnerOverlay.visibility = View.VISIBLE
+        (spinnerOverlay.drawable as? AnimationDrawable)?.start()
+    }
+    private fun hideSpinnerImpl() = mainHandler.post {
+        if (!::spinnerOverlay.isInitialized) return@post
+        (spinnerOverlay.drawable as? AnimationDrawable)?.stop()
+        spinnerOverlay.visibility = View.GONE
+    }
+
     override fun onDestroy() {
         Log.d(TAG, "Service onDestroy")
         instance = null
@@ -1260,6 +1347,8 @@ class OverlayService : Service() {
                 Log.e("OverlayService", "Error removing area indicator view on destroy", e)
             }
         }
+
+        if (::spinnerOverlay.isInitialized) windowManager.removeView(spinnerOverlay)
 
         translationData.value = emptyList()
     }

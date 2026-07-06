@@ -204,12 +204,15 @@ class ScreenCaptureService : Service() {
         pipeline = TranslationPipeline(
             translationService,
             onWillTranslate = {
+                OverlayService.showSpinner()
                 if (PreferencesManager.getInstance(this).inPlaceMode) OverlayService.clearShownTranslation()
             },
             onUnchanged = {
+                OverlayService.hideSpinner()
                 if (PreferencesManager.getInstance(this).inPlaceMode) OverlayService.fadeInAfterCapture()
             }
         ) { results ->
+            OverlayService.hideSpinner()
             // Drop the result if the user tapped while this translation was running
             if (translationStartSession == sessionId) {
                 lastResultRects = results.map { it.boundingBox }
@@ -623,6 +626,7 @@ class ScreenCaptureService : Service() {
                 newText == oldText
 
         translationStartSession = sessionId
+        consumeUserInput()
         if (sameAsLast) {
             Log.d(TAG, "Manual: OCR text identical → bypass LLM cache, retry translation")
             // 用刚 OCR 出的新 blocks（位置可能微调），bypassCache 强制 LLM 重译
@@ -820,6 +824,7 @@ class ScreenCaptureService : Service() {
                     if (!f.isRecycled) fingerprint(f) else null
                 }
                 translationStartSession = sessionId
+                consumeUserInput()
                 pipeline.translateSnapshot(
                     snap = snap,                       // snap is consumed (recycled) inside
                     sourceLanguage = prefs.sourceLanguage,
