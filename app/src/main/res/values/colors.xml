@@ -8,10 +8,61 @@
     <color name="secondary_dark">#E09600</color>
     <color name="secondary_variant">#F6C74E</color>
 
-    <color name="background">#F4F6FA</color>
+    <color name="background">#F2F2F7</color>
     <color name="surface">#FFFFFF</color>
     <color name="error">#B00020</color>
-    <color name="on_surface_muted">#5F6368</color>
+    <color name="on_surface_muted">#993C3C43</color>
+
+    <!--
+      iOS-style grouped-list palette (see the design doc's turn 2). Every name here has a
+      values-night counterpart, so referencing these instead of raw hex is what makes the
+      settings screens follow the system light/dark setting.
+    -->
+    <color name="ios_grouped_bg">#F2F2F7</color>
+    <color name="ios_card">#FFFFFF</color>
+    <color name="ios_separator">#C6C6C8</color>
+    <color name="ios_label">#000000</color>
+    <!-- Apple's secondaryLabel / tertiaryLabel: same hue, different alpha -->
+    <color name="ios_label_secondary">#993C3C43</color>
+    <color name="ios_label_tertiary">#4D3C3C43</color>
+    <!-- secondarySystemFill — segmented-control track, inactive slider track -->
+    <color name="ios_fill_secondary">#1F787880</color>
+    <color name="ios_destructive">#FF3B30</color>
+    <color name="ios_switch_on">#34C759</color>
+    <color name="ios_switch_off">#E9E9EA</color>
+    <color name="ios_switch_thumb">#FFFFFF</color>
+    <color name="ios_segment_thumb">#FFFFFFFF</color>
+    <!-- Live preview card in Overlay Settings — mimics the on-game overlay, so it stays dark -->
+    <color name="ios_preview_bg">#1C1C1E</color>
+    <!-- Opaque grey for the Overlay Settings glyph tile (on_surface_muted is translucent) -->
+    <color name="glyph_tile_grey">#5F6368</color>
+
+    <!--
+      Accent palette behind the swatch row on the main screen. Each pairs with a
+      ThemeOverlay.ScreenTranslator.AccentN in styles.xml, and each has a values-night variant
+      lightened for contrast against a black background.
+    -->
+    <color name="accent_blue">#4285F4</color>
+    <color name="accent_purple">#AF52DE</color>
+    <color name="accent_green">#34C759</color>
+    <color name="accent_orange">#FF9500</color>
+    <color name="accent_pink">#FF375F</color>
+    <color name="accent_graphite">#5F6368</color>
+
+    <!--
+      colorPrimaryVariant, used for the main screen's header band and its status bar. Each is
+      dark enough to clear 4.5:1 against white, so the 15sp description on the band stays
+      readable — the raw accents don't: white on accent_green/accent_orange is only ~2.2:1.
+    -->
+    <color name="accent_blue_dark">#2A5CC4</color>
+    <color name="accent_purple_dark">#7B2FA3</color>
+    <color name="accent_green_dark">#1E8637</color>
+    <color name="accent_orange_dark">#9C5900</color>
+    <color name="accent_pink_dark">#C21F40</color>
+    <color name="accent_graphite_dark">#3A3D41</color>
+
+    <!-- colorOnPrimary for the accents that are too light to carry white text -->
+    <color name="accent_on_light">#1A1A1A</color>
 
     <color name="on_primary">#FFFFFF</color>
     <color name="on_secondary">#000000</color>

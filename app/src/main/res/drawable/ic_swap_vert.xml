@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Two-way arrow for the From/To swap row. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8,4l-4.5,5h3v7h3L9.5,9h3L8,4zM16,20l4.5,-5h-3L17.5,8h-3v7h-3L16,20z" />
+</vector>

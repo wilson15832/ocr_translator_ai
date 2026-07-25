@@ -1,15 +1,20 @@
 package com.example.ocr_translation
 
 import android.content.Intent
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
-import android.view.MenuItem
+import android.text.InputType
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.ocr_translation.databinding.ActivitySettingsBinding
+import com.example.ocr_translation.ui.AppTheme
+import com.example.ocr_translation.ui.OptionPicker
+import com.example.ocr_translation.ui.SettingsRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,17 +35,27 @@ class SettingsActivity : AppCompatActivity() {
 
     private var currentProvider = LlmProvider.CHATGPT
     private var currentCodes: List<String> = emptyList()   // 当前公司的模型码（save 时按下标取）
+    private var currentModelNames: List<String> = emptyList()
+
+    // The Spinners became picker rows, so the "selected position" each one used to hold for us
+    // now lives here and is read back in saveSettings().
+    private var modelIndex = 0
+    private var textColorIndex = 0
+    private var bgColorIndex = 0
+    private var fontSelIndex = 0
+    private var foldSelIndex = 0
+    private var panelBgColorIndex = 0
 
     private fun populateModels(provider: LlmProvider, selectCode: String? = null) {
         val names = resources.getStringArray(R.array.models)
         val codes = resources.getStringArray(R.array.model_codes)
         val idx = codes.indices.filter { LlmProvider.fromModel(codes[it]) == provider }
         currentCodes = idx.map { codes[it] }
-        binding.spinnerModel.adapter = android.widget.ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item, idx.map { names[it] })
-        val sel = selectCode?.let { currentCodes.indexOf(it) }?.takeIf { it >= 0 } ?: 0
-        binding.spinnerModel.setSelection(sel)
+        currentModelNames = idx.map { names[it] }
+        modelIndex = selectCode?.let { currentCodes.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+        binding.rowModel.value = currentModelNames.getOrNull(modelIndex)
     }
+
     companion object {
         private const val TAG = "SettingsActivity"
         const val EXTRA_SECTION = "section"
@@ -53,11 +68,13 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before inflation: ?attr/colorPrimary is resolved eagerly by the inflater.
+        AppTheme.applyTo(this)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Set up toolbar with back button
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        // The screen draws its own nav bar (Back / title / Save) instead of using an ActionBar.
+        binding.btnNavBack.setOnClickListener { finish() }
 
         // Register the SAF launchers before any UI wiring touches them.
         pickSaveFolder = registerForActivityResult(
@@ -85,6 +102,7 @@ class SettingsActivity : AppCompatActivity() {
                 val ok = copyFontToFilesDir(uri)
                 if (ok) {
                     refreshCustomFontLabel()
+                    refreshPreview()
                     Toast.makeText(this@SettingsActivity, R.string.custom_font_loaded, Toast.LENGTH_SHORT).show()
                     // Apply immediately so the user sees the new font in the next translation
                     updateActiveServices()
@@ -97,27 +115,27 @@ class SettingsActivity : AppCompatActivity() {
         // Show only the requested group (homepage opens one or the other)
         when (intent.getStringExtra(EXTRA_SECTION)) {
             SECTION_OVERLAY -> {
-                binding.groupTranslation.visibility = android.view.View.GONE
-                binding.groupOverlay.visibility = android.view.View.VISIBLE
-                supportActionBar?.setTitle(R.string.display_settings)
+                binding.groupTranslation.visibility = View.GONE
+                binding.groupOverlay.visibility = View.VISIBLE
+                binding.textNavTitle.setText(R.string.display_settings)
             }
             SECTION_TRANSLATION -> {
-                binding.groupTranslation.visibility = android.view.View.VISIBLE
-                binding.groupOverlay.visibility = android.view.View.GONE
-                supportActionBar?.setTitle(R.string.translation_settings)
+                binding.groupTranslation.visibility = View.VISIBLE
+                binding.groupOverlay.visibility = View.GONE
+                binding.textNavTitle.setText(R.string.translation_settings)
             }
             else -> {  // no section specified: show everything
-                binding.groupTranslation.visibility = android.view.View.VISIBLE
-                binding.groupOverlay.visibility = android.view.View.VISIBLE
-                supportActionBar?.setTitle(R.string.settings)
+                binding.groupTranslation.visibility = View.VISIBLE
+                binding.groupOverlay.visibility = View.VISIBLE
+                binding.textNavTitle.setText(R.string.settings)
             }
         }
 
         // Initialize preferences manager
         preferencesManager = PreferencesManager.getInstance(this)
 
-        // Set up language spinners
-        setupLanguageSpinners()
+        // Set up the picker rows and segmented controls
+        setupChoiceControls()
 
         // Set up listeners
         setupListeners()
@@ -131,40 +149,38 @@ class SettingsActivity : AppCompatActivity() {
         binding.editSystemPrompt.setText(preferencesManager.systemPrompt)
         binding.editUserPrompt.setText(preferencesManager.userPrompt)
         currentProvider = LlmProvider.fromModel(preferencesManager.modelName)
-        binding.spinnerProvider.setSelection(currentProvider.ordinal)
+        binding.segmentProvider.setSelectionSilently(currentProvider.ordinal)
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
         populateModels(currentProvider, preferencesManager.modelName)
         binding.editApiKey.setText(preferencesManager.getApiKey(currentProvider))
+        applyLocalModelState(preferencesManager.useLocalModel)
 
         // Capture settings
-        // Snap to the slider's step grid (0.2 + k*0.1) so a stale off-grid value can't crash the Slider
-        val scanSeconds = (preferencesManager.captureInterval / 1000f).coerceIn(0.2f, 1.5f)
-        val scanSteps = Math.round((scanSeconds - 0.2f) / 0.1f)
-        binding.sliderCaptureInterval.value = (0.2f + scanSteps * 0.1f).coerceIn(0.2f, 1.5f)
+        binding.sliderCaptureInterval.setSnapped(preferencesManager.captureInterval / 1000f)
         binding.switchAutoCapture.isChecked = preferencesManager.autoCaptureEnabled
 
         // Display settings
-        binding.GifOpacity.value = preferencesManager.spinnerAlpha
-        binding.GifSize.value = preferencesManager.spinnerSizeDp.toFloat()
+        binding.GifOpacity.setSnapped(preferencesManager.spinnerAlpha)
+        binding.GifSize.setSnapped(preferencesManager.spinnerSizeDp.toFloat())
         binding.switchGifEnabled.isChecked = preferencesManager.spinnerEnabled
-        binding.sliderTextSize.value = preferencesManager.textSizeMultiplier
-        binding.sliderOverlayOpacity.value = preferencesManager.overlayOpacity
+        binding.sliderTextSize.setSnapped(preferencesManager.textSizeMultiplier)
+        binding.sliderOverlayOpacity.setSnapped(preferencesManager.overlayOpacity)
         binding.switchAlternativeStyle.isChecked = preferencesManager.useAlternativeStyle
         binding.switchShowAreaBorder.isChecked = preferencesManager.showAreaBorder
-        binding.spinnerFontColor.setSelection(colorIndex(preferencesManager.translationTextColor))
-        binding.spinnerBgColor.setSelection(colorIndex(preferencesManager.translationBgColor))
-        binding.spinnerFoldFavorite.setSelection(foldIndex(preferencesManager.foldFavorite))
+        textColorIndex = colorIndex(preferencesManager.translationTextColor)
+        bgColorIndex = colorIndex(preferencesManager.translationBgColor)
+        foldSelIndex = foldIndex(preferencesManager.foldFavorite)
+        fontSelIndex = fontIndex(preferencesManager.translationFont)
         binding.switchInPlaceMode.isChecked = preferencesManager.inPlaceMode
         binding.switchUseAccessibility.isChecked = preferencesManager.useAccessibility
-        binding.spinnerFont.setSelection(fontIndex(preferencesManager.translationFont))
         binding.switchMergeOverlap.isChecked = preferencesManager.mergeOverlapBoxes
 
         // Control panel styling
-        binding.spinnerControlPanelOrientation.setSelection(
+        binding.segmentControlPanelOrientation.setSelectionSilently(
             controlPanelOrientationIndex(preferencesManager.controlPanelOrientation)
         )
-        binding.spinnerControlPanelBgColor.setSelection(colorIndex(preferencesManager.controlPanelBgColor))
-        binding.sliderControlPanelOpacity.value = preferencesManager.controlPanelOpacity
+        panelBgColorIndex = colorIndex(preferencesManager.controlPanelBgColor)
+        binding.sliderControlPanelOpacity.setSnapped(preferencesManager.controlPanelOpacity)
 
         // Save-to-file + custom font
         binding.switchSaveToFile.isChecked = preferencesManager.saveToFileEnabled
@@ -172,75 +188,102 @@ class SettingsActivity : AppCompatActivity() {
         refreshCustomFontLabel()
 
         // Cache settings
-        binding.sliderMaxCache.value = preferencesManager.maxCacheEntries.toFloat()
-        binding.sliderMaxTokens.value = preferencesManager.maxTokens.toFloat()
-        binding.sliderCacheTtl.value = preferencesManager.cacheTtlHours.toFloat()
+        binding.sliderMaxCache.setSnapped(preferencesManager.maxCacheEntries.toFloat())
+        binding.sliderMaxTokens.setSnapped(preferencesManager.maxTokens.toFloat())
+        binding.sliderCacheTtl.setSnapped(preferencesManager.cacheTtlHours.toFloat())
 
         // History settings
-        binding.sliderHistoryDays.value = preferencesManager.keepHistoryDays.toFloat()
+        binding.sliderHistoryDays.setSnapped(preferencesManager.keepHistoryDays.toFloat())
 
         // Update display values
+        refreshChoiceLabels()
         updateDisplayValues()
+        refreshPreview()
     }
 
     private fun updateDisplayValues() {
-        // Update text views with current values
-        binding.textCaptureIntervalValue.text = getString(
+        // Update the value shown at the right end of each slider row
+        binding.sliderCaptureInterval.valueLabel.text = getString(
             R.string.seconds_value,
-            binding.sliderCaptureInterval.value
+            binding.sliderCaptureInterval.slider.value
         )
 
-        binding.textTextSizeValue.text = getString(
+        binding.sliderTextSize.valueLabel.text = getString(
             R.string.multiplier_value,
-            binding.sliderTextSize.value
+            binding.sliderTextSize.slider.value
         )
 
-        binding.textOverlayOpacityValue.text = getString(
+        binding.sliderOverlayOpacity.valueLabel.text = getString(
             R.string.percentage_value,
-            (binding.sliderOverlayOpacity.value * 100).toInt()
+            (binding.sliderOverlayOpacity.slider.value * 100).toInt()
         )
 
-        binding.textMaxCacheValue.text = binding.sliderMaxCache.value.toInt().toString()
+        binding.GifOpacity.valueLabel.text = getString(
+            R.string.percentage_value,
+            (binding.GifOpacity.slider.value * 100).toInt()
+        )
 
-        binding.textCacheTtlValue.text = getString(
+        binding.GifSize.valueLabel.text = binding.GifSize.slider.value.toInt().toString()
+
+        binding.sliderMaxTokens.valueLabel.text =
+            binding.sliderMaxTokens.slider.value.toInt().toString()
+
+        binding.sliderMaxCache.valueLabel.text =
+            binding.sliderMaxCache.slider.value.toInt().toString()
+
+        binding.sliderCacheTtl.valueLabel.text = getString(
             R.string.hours_value,
-            binding.sliderCacheTtl.value.toInt()
+            binding.sliderCacheTtl.slider.value.toInt()
         )
 
-        binding.textHistoryDaysValue.text = getString(
+        binding.sliderHistoryDays.valueLabel.text = getString(
             R.string.days_value,
-            binding.sliderHistoryDays.value.toInt()
+            binding.sliderHistoryDays.slider.value.toInt()
         )
 
-        binding.textControlPanelOpacityValue.text = getString(
+        binding.sliderControlPanelOpacity.valueLabel.text = getString(
             R.string.percentage_value,
-            (binding.sliderControlPanelOpacity.value * 100).toInt()
+            (binding.sliderControlPanelOpacity.slider.value * 100).toInt()
         )
     }
 
     private fun setupListeners() {
-        // Save button
+        // Save lives in the nav bar now
         binding.btnSaveSettings.setOnClickListener {
             saveSettings()
         }
 
-        // Reset button
+        // Reset sits at the bottom of the list, in destructive red
         binding.btnResetSettings.setOnClickListener {
             resetSettings()
         }
 
-        binding.spinnerProvider.onItemSelectedListener =
-            object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: android.widget.AdapterView<*>?, v: android.view.View?, pos: Int, id: Long) {
-                    val np = LlmProvider.values()[pos]
-                    if (np == currentProvider) return
-                    preferencesManager.setApiKey(currentProvider, binding.editApiKey.text.toString()) // 先存旧公司的 key
-                    currentProvider = np
-                    populateModels(np)                                   // 切到新公司模型（选第一个）
-                    binding.editApiKey.setText(preferencesManager.getApiKey(np))
-                }
-                override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        binding.segmentProvider.onSelected = { position ->
+            val np = LlmProvider.values()[position]
+            if (np != currentProvider) {
+                preferencesManager.setApiKey(currentProvider, binding.editApiKey.text.toString()) // 先存旧公司的 key
+                currentProvider = np
+                populateModels(np)                                   // 切到新公司模型（选第一个）
+                binding.editApiKey.setText(preferencesManager.getApiKey(np))
             }
+        }
+
+        // Reveal / hide the API key — replaces the old TextInputLayout password toggle
+        binding.btnToggleApiKey.setOnClickListener {
+            val field = binding.editApiKey
+            val hidden = field.inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD != 0
+            val cursor = field.selectionStart
+            // Assigning inputType resets the typeface to monospace, so restore it afterwards.
+            val face = field.typeface
+            field.inputType =
+                if (hidden) InputType.TYPE_CLASS_TEXT
+                else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            field.typeface = face
+            field.setSelection(cursor.coerceIn(0, field.text?.length ?: 0))
+            binding.btnToggleApiKey.setImageResource(
+                if (hidden) R.drawable.ic_visibility_off else R.drawable.ic_visibility
+            )
+        }
 
         // Open system accessibility settings so the user can enable the enhanced-OCR service
         binding.btnEnableAccessibility.setOnClickListener {
@@ -252,53 +295,65 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         // Slider change listeners
-        binding.sliderCaptureInterval.addOnChangeListener { _, value, _ ->
-            binding.textCaptureIntervalValue.text = getString(R.string.seconds_value, value)
+        binding.sliderCaptureInterval.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderCaptureInterval.valueLabel.text = getString(R.string.seconds_value, value)
         }
 
-        binding.sliderTextSize.addOnChangeListener { _, value, _ ->
-            binding.textTextSizeValue.text = getString(R.string.multiplier_value, value)
+        binding.sliderTextSize.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderTextSize.valueLabel.text = getString(R.string.multiplier_value, value)
+            refreshPreview()
         }
 
-        binding.sliderOverlayOpacity.addOnChangeListener { _, value, _ ->
-            binding.textOverlayOpacityValue.text = getString(
+        binding.sliderOverlayOpacity.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderOverlayOpacity.valueLabel.text = getString(
                 R.string.percentage_value,
                 (value * 100).toInt()
             )
+            refreshPreview()
         }
 
-        binding.sliderMaxCache.addOnChangeListener { _, value, _ ->
-            binding.textMaxCacheValue.text = value.toInt().toString()
+        binding.GifOpacity.slider.addOnChangeListener { _, value, _ ->
+            binding.GifOpacity.valueLabel.text =
+                getString(R.string.percentage_value, (value * 100).toInt())
         }
 
-        binding.sliderMaxTokens.addOnChangeListener { _, value, _ ->
-            binding.textMaxTokensValue.text = value.toInt().toString()
+        binding.GifSize.slider.addOnChangeListener { _, value, _ ->
+            binding.GifSize.valueLabel.text = value.toInt().toString()
         }
 
-        binding.sliderCacheTtl.addOnChangeListener { _, value, _ ->
-            binding.textCacheTtlValue.text = getString(
+        binding.sliderMaxCache.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderMaxCache.valueLabel.text = value.toInt().toString()
+        }
+
+        binding.sliderMaxTokens.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderMaxTokens.valueLabel.text = value.toInt().toString()
+        }
+
+        binding.sliderCacheTtl.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderCacheTtl.valueLabel.text = getString(
                 R.string.hours_value,
                 value.toInt()
             )
         }
 
-        binding.sliderHistoryDays.addOnChangeListener { _, value, _ ->
-            binding.textHistoryDaysValue.text = getString(
+        binding.sliderHistoryDays.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderHistoryDays.valueLabel.text = getString(
                 R.string.days_value,
                 value.toInt()
             )
         }
 
         // Local model switch
-        binding.switchUseLocalModel.setOnCheckedChangeListener { _, isChecked ->
-            binding.layoutApiSettings.isEnabled = !isChecked
-            binding.editApiKey.isEnabled = !isChecked
-            binding.spinnerModel.isEnabled = !isChecked
+        binding.switchUseLocalModel.switch.setOnCheckedChangeListener { _, isChecked ->
+            applyLocalModelState(isChecked)
         }
 
+        // Speech-bubble style changes the preview's corner radius / border
+        binding.switchAlternativeStyle.switch.setOnCheckedChangeListener { _, _ -> refreshPreview() }
+
         // Control panel opacity live readout
-        binding.sliderControlPanelOpacity.addOnChangeListener { _, value, _ ->
-            binding.textControlPanelOpacityValue.text = getString(
+        binding.sliderControlPanelOpacity.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderControlPanelOpacity.valueLabel.text = getString(
                 R.string.percentage_value,
                 (value * 100).toInt()
             )
@@ -330,66 +385,144 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupLanguageSpinners() {
-        // Set up language adapters
-        val languages = resources.getStringArray(R.array.languages)
-        val languageCodes = resources.getStringArray(R.array.language_codes)
-
-        Log.d(TAG, "Languages array content: ${languages.joinToString()}") // 添加日志
-        Log.d(TAG, "Language codes array content: ${languageCodes.joinToString()}") // 添加日志
-
-        val sourceAdapter = android.widget.ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            languages
-        )
-        Log.d(TAG, "Source spinner adapter item count: ${sourceAdapter.count}") // 添加日志
-
-        val targetAdapter = android.widget.ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            languages.copyOfRange(1, languages.size) // Skip "Auto-detect" for target
-        )
-        Log.d(TAG, "Target spinner adapter item count: ${targetAdapter.count}") // 添加日志
-
-        // Set up model spinner
-        val models = resources.getStringArray(R.array.models)
-        val modelCodes = resources.getStringArray(R.array.model_codes)
-
-        val modelAdapter = android.widget.ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            models
-        )
-
-        binding.spinnerProvider.adapter = android.widget.ArrayAdapter(
-            this, android.R.layout.simple_spinner_dropdown_item,
-            LlmProvider.values().map { it.displayName })
-
-        // Overlay colour + fold-favorite spinners
-        val colors = resources.getStringArray(R.array.overlay_colors)
-        binding.spinnerFontColor.adapter =
-            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colors)
-        binding.spinnerBgColor.adapter =
-            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colors)
-
-        val foldOptions = resources.getStringArray(R.array.fold_options)
-        binding.spinnerFoldFavorite.adapter =
-            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, foldOptions)
-
-        val fonts = resources.getStringArray(R.array.font_options)
-        binding.spinnerFont.adapter =
-            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, fonts)
-
-        // Control panel styling spinners
-        val orientationLabels = resources.getStringArray(R.array.control_panel_orientation_options)
-        binding.spinnerControlPanelOrientation.adapter =
-            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, orientationLabels)
-
-        // Reuse the existing palette for the control panel background colour
-        binding.spinnerControlPanelBgColor.adapter =
-            android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, colors)
+    /** Greys out the API controls when the local model is in use, as the old screen did. */
+    private fun applyLocalModelState(useLocal: Boolean) {
+        binding.layoutApiSettings.isEnabled = !useLocal
+        binding.editApiKey.isEnabled = !useLocal
+        binding.btnToggleApiKey.isEnabled = !useLocal
+        binding.rowModel.isEnabled = !useLocal
+        binding.segmentProvider.isEnabled = !useLocal
+        val alpha = if (useLocal) 0.4f else 1f
+        binding.layoutApiSettings.alpha = alpha
+        binding.rowModel.alpha = alpha
+        binding.segmentProvider.alpha = alpha
     }
+
+    /**
+     * Wires every row that used to hold a Spinner to a bottom-sheet picker, plus the two
+     * segmented controls. Called once; [refreshChoiceLabels] then keeps the right-hand values
+     * in sync with the indices that [loadSettings] restores.
+     */
+    private fun setupChoiceControls() {
+        binding.segmentProvider.setEntries(LlmProvider.values().map { it.displayName })
+
+        val colors = resources.getStringArray(R.array.overlay_colors).toList()
+        val fonts = resources.getStringArray(R.array.font_options).toList()
+        val foldOptions = resources.getStringArray(R.array.fold_options).toList()
+
+        bindPicker(binding.rowModel, R.string.model, { currentModelNames }, { modelIndex }) {
+            modelIndex = it
+        }
+        bindPicker(binding.rowFontColor, R.string.font_color, { colors }, { textColorIndex }) {
+            textColorIndex = it
+        }
+        bindPicker(binding.rowBgColor, R.string.background_color, { colors }, { bgColorIndex }) {
+            bgColorIndex = it
+        }
+        bindPicker(binding.rowFont, R.string.font_style, { fonts }, { fontSelIndex }) {
+            fontSelIndex = it
+        }
+        bindPicker(binding.rowFoldFavorite, R.string.fold_favorite, { foldOptions }, { foldSelIndex }) {
+            foldSelIndex = it
+        }
+        bindPicker(
+            binding.rowControlPanelBgColor,
+            R.string.control_panel_background_color,
+            { colors },
+            { panelBgColorIndex }
+        ) { panelBgColorIndex = it }
+    }
+
+    /**
+     * @param entries a supplier rather than a list: the model row's options change whenever the
+     *   provider segment changes.
+     */
+    private fun bindPicker(
+        row: SettingsRow,
+        titleRes: Int,
+        entries: () -> List<String>,
+        selected: () -> Int,
+        onPick: (Int) -> Unit
+    ) {
+        row.setOnClickListener {
+            val options = entries()
+            if (options.isEmpty()) return@setOnClickListener
+            OptionPicker.show(this, getString(titleRes), options, selected()) { index ->
+                onPick(index)
+                row.value = options.getOrNull(index)
+                refreshPreview()
+            }
+        }
+    }
+
+    /** Pushes the persisted indices back out to the rows' right-hand value labels. */
+    private fun refreshChoiceLabels() {
+        val colors = resources.getStringArray(R.array.overlay_colors)
+        binding.rowModel.value = currentModelNames.getOrNull(modelIndex)
+        binding.rowFontColor.value = colors.getOrNull(textColorIndex)
+        binding.rowBgColor.value = colors.getOrNull(bgColorIndex)
+        binding.rowFont.value =
+            resources.getStringArray(R.array.font_options).getOrNull(fontSelIndex)
+        binding.rowFoldFavorite.value =
+            resources.getStringArray(R.array.fold_options).getOrNull(foldSelIndex)
+        binding.rowControlPanelBgColor.value = colors.getOrNull(panelBgColorIndex)
+    }
+
+    /**
+     * Renders the sample translation with the text size, colours, font and opacity currently
+     * selected — the one thing the old Overlay Settings screen made you guess at, since none of
+     * those controls showed their effect until you went back into a game.
+     */
+    private fun refreshPreview() {
+        val colorValues = resources.getStringArray(R.array.overlay_color_values)
+        val textColor = parseColorAt(colorValues, textColorIndex)
+        val bgColor = parseColorAt(colorValues, bgColorIndex)
+        val opacity = binding.sliderOverlayOpacity.slider.value.coerceIn(0f, 1f)
+        val multiplier = binding.sliderTextSize.slider.value
+
+        val target = binding.textPreviewTarget
+        target.setTextColor(textColor)
+        target.textSize = 14f * multiplier
+        target.typeface = previewTypeface()
+        target.background = GradientDrawable().apply {
+            cornerRadius = if (binding.switchAlternativeStyle.isChecked) dp(12f) else dp(5f)
+            setColor((bgColor and 0x00FFFFFF) or ((255 * opacity).toInt() shl 24))
+            if (binding.switchAlternativeStyle.isChecked) {
+                setStroke(dp(1f).toInt(), 0x44FFFFFF)
+            }
+        }
+    }
+
+    /** Mirrors OverlayService.resultTypeface(): custom file first, bundled font, then family. */
+    private fun previewTypeface(): android.graphics.Typeface {
+        val customPath = preferencesManager.customFontPath
+        if (customPath.isNotEmpty()) {
+            try {
+                val f = File(customPath)
+                if (f.exists() && f.canRead()) return android.graphics.Typeface.createFromFile(f)
+            } catch (e: Exception) {
+                Log.w(TAG, "Preview: custom font load failed", e)
+            }
+        }
+        val name = resources.getStringArray(R.array.font_values).getOrNull(fontSelIndex)
+            ?: return android.graphics.Typeface.DEFAULT
+        val resId = resources.getIdentifier(name, "font", packageName)
+        return if (resId != 0) {
+            androidx.core.content.res.ResourcesCompat.getFont(this, resId)
+                ?: android.graphics.Typeface.DEFAULT
+        } else {
+            android.graphics.Typeface.create(name, android.graphics.Typeface.NORMAL)
+        }
+    }
+
+    private fun parseColorAt(values: Array<String>, index: Int): Int =
+        try {
+            android.graphics.Color.parseColor(values[index])
+        } catch (e: Exception) {
+            android.graphics.Color.WHITE
+        }
+
+    private fun dp(v: Float) = v * resources.displayMetrics.density
 
     private fun fontIndex(value: String): Int {
         val idx = resources.getStringArray(R.array.font_values).indexOf(value)
@@ -412,33 +545,28 @@ class SettingsActivity : AppCompatActivity() {
         return if (idx >= 0) idx else 0
     }
 
-    /** Update the "Saving to: ..." label, also verifies the persisted permission is still valid. */
+    /** Update the folder shown on the "Choose folder" row; also verifies the permission holds. */
     private fun refreshSaveFolderLabel() {
         val uriStr = preferencesManager.saveFolderUri
         if (uriStr.isEmpty()) {
-            binding.textSaveFolderCurrent.text = getString(R.string.save_folder_none)
+            binding.btnChooseSaveFolder.value = getString(R.string.save_folder_none)
             return
         }
         val uri = Uri.parse(uriStr)
         // Confirm we still hold the persisted permission (user may have revoked it via system UI).
         val stillGranted = contentResolver.persistedUriPermissions.any { it.uri == uri && it.isWritePermission }
         if (!stillGranted) {
-            binding.textSaveFolderCurrent.text = getString(R.string.save_folder_unset)
+            binding.btnChooseSaveFolder.value = getString(R.string.save_folder_unset)
             preferencesManager.saveFolderUri = ""
         } else {
-            val display = Uri.decode(uri.lastPathSegment ?: uriStr)
-            binding.textSaveFolderCurrent.text = getString(R.string.save_folder_current, display)
+            binding.btnChooseSaveFolder.value = Uri.decode(uri.lastPathSegment ?: uriStr)
         }
     }
 
     private fun refreshCustomFontLabel() {
         val path = preferencesManager.customFontPath
-        if (path.isEmpty()) {
-            binding.textCustomFontCurrent.text = getString(R.string.custom_font_none)
-        } else {
-            val name = File(path).name
-            binding.textCustomFontCurrent.text = getString(R.string.custom_font_current, name)
-        }
+        binding.btnLoadCustomFont.value =
+            if (path.isEmpty()) getString(R.string.custom_font_none) else File(path).name
     }
 
     /**
@@ -476,14 +604,9 @@ class SettingsActivity : AppCompatActivity() {
             preferencesManager.customFontPath = ""
         }
         refreshCustomFontLabel()
+        refreshPreview()
         Toast.makeText(this, R.string.custom_font_cleared, Toast.LENGTH_SHORT).show()
         updateActiveServices()
-    }
-
-    private fun getModelPosition(modelName: String): Int {
-        val modelCodes = resources.getStringArray(R.array.model_codes)
-        val position = modelCodes.indexOf(modelName)
-        return if (position >= 0) position else 0
     }
 
     private fun saveSettings() {
@@ -492,58 +615,54 @@ class SettingsActivity : AppCompatActivity() {
         // LLM API settings
         preferencesManager.setApiKey(currentProvider, binding.editApiKey.text.toString())
         if (currentCodes.isNotEmpty())
-            preferencesManager.modelName = currentCodes[binding.spinnerModel.selectedItemPosition]
+            preferencesManager.modelName = currentCodes[modelIndex.coerceIn(currentCodes.indices)]
         preferencesManager.systemPrompt =
             binding.editSystemPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_SYSTEM_PROMPT }
         preferencesManager.userPrompt =
             binding.editUserPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_USER_PROMPT }
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
-        preferencesManager.maxTokens = binding.sliderMaxTokens.value.toInt()
+        preferencesManager.maxTokens = binding.sliderMaxTokens.slider.value.toInt()
 
         // Capture settings
-        preferencesManager.captureInterval = (binding.sliderCaptureInterval.value * 1000).toLong()
+        preferencesManager.captureInterval = (binding.sliderCaptureInterval.slider.value * 1000).toLong()
         preferencesManager.autoCaptureEnabled = binding.switchAutoCapture.isChecked
         preferencesManager.spinnerEnabled = binding.switchGifEnabled.isChecked
 
-        preferencesManager.spinnerAlpha = binding.GifOpacity.value
-        preferencesManager.spinnerSizeDp = binding.GifSize.value.toInt()
+        preferencesManager.spinnerAlpha = binding.GifOpacity.slider.value
+        preferencesManager.spinnerSizeDp = binding.GifSize.slider.value.toInt()
         // Display settings
-        preferencesManager.textSizeMultiplier = binding.sliderTextSize.value
-        preferencesManager.overlayOpacity = binding.sliderOverlayOpacity.value
+        preferencesManager.textSizeMultiplier = binding.sliderTextSize.slider.value
+        preferencesManager.overlayOpacity = binding.sliderOverlayOpacity.slider.value
         preferencesManager.useAlternativeStyle = binding.switchAlternativeStyle.isChecked
         preferencesManager.showAreaBorder = binding.switchShowAreaBorder.isChecked
         val colorValues = resources.getStringArray(R.array.overlay_color_values)
-        preferencesManager.translationTextColor =
-            android.graphics.Color.parseColor(colorValues[binding.spinnerFontColor.selectedItemPosition])
-        preferencesManager.translationBgColor =
-            android.graphics.Color.parseColor(colorValues[binding.spinnerBgColor.selectedItemPosition])
+        preferencesManager.translationTextColor = parseColorAt(colorValues, textColorIndex)
+        preferencesManager.translationBgColor = parseColorAt(colorValues, bgColorIndex)
         val foldValues = resources.getStringArray(R.array.fold_option_values)
-        preferencesManager.foldFavorite = foldValues[binding.spinnerFoldFavorite.selectedItemPosition]
+        preferencesManager.foldFavorite = foldValues[foldSelIndex.coerceIn(foldValues.indices)]
         preferencesManager.inPlaceMode = binding.switchInPlaceMode.isChecked
         preferencesManager.mergeOverlapBoxes = binding.switchMergeOverlap.isChecked
         preferencesManager.useAccessibility = binding.switchUseAccessibility.isChecked
-        preferencesManager.translationFont =
-            resources.getStringArray(R.array.font_values)[binding.spinnerFont.selectedItemPosition]
+        val fontValues = resources.getStringArray(R.array.font_values)
+        preferencesManager.translationFont = fontValues[fontSelIndex.coerceIn(fontValues.indices)]
 
         // Control panel styling
-        preferencesManager.controlPanelOrientation =
-            resources.getStringArray(R.array.control_panel_orientation_values)[
-                binding.spinnerControlPanelOrientation.selectedItemPosition
-            ]
-        preferencesManager.controlPanelBgColor = android.graphics.Color.parseColor(
-            colorValues[binding.spinnerControlPanelBgColor.selectedItemPosition]
-        )
-        preferencesManager.controlPanelOpacity = binding.sliderControlPanelOpacity.value
+        val orientationValues = resources.getStringArray(R.array.control_panel_orientation_values)
+        preferencesManager.controlPanelOrientation = orientationValues[
+            binding.segmentControlPanelOrientation.selectedIndex.coerceIn(orientationValues.indices)
+        ]
+        preferencesManager.controlPanelBgColor = parseColorAt(colorValues, panelBgColorIndex)
+        preferencesManager.controlPanelOpacity = binding.sliderControlPanelOpacity.slider.value
 
         // Save-to-file: the folder URI is set by the picker callback; only the enable switch is here.
         preferencesManager.saveToFileEnabled = binding.switchSaveToFile.isChecked
 
         // Cache settings
-        preferencesManager.maxCacheEntries = binding.sliderMaxCache.value.toInt()
-        preferencesManager.cacheTtlHours = binding.sliderCacheTtl.value.toInt()
+        preferencesManager.maxCacheEntries = binding.sliderMaxCache.slider.value.toInt()
+        preferencesManager.cacheTtlHours = binding.sliderCacheTtl.slider.value.toInt()
 
         // History settings
-        preferencesManager.keepHistoryDays = binding.sliderHistoryDays.value.toInt()
+        preferencesManager.keepHistoryDays = binding.sliderHistoryDays.slider.value.toInt()
 
         // Notify user
         Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
@@ -577,13 +696,5 @@ class SettingsActivity : AppCompatActivity() {
         captureIntent.putExtra("captureInterval", preferencesManager.captureInterval)
         captureIntent.putExtra("autoCapture", preferencesManager.autoCaptureEnabled)
         sendBroadcast(captureIntent)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == android.R.id.home) {
-            onBackPressed()
-            return true
-        }
-        return super.onOptionsItemSelected(item)
     }
 }

@@ -9,15 +9,19 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
-import android.view.View
+import android.view.Gravity
 import android.view.accessibility.AccessibilityManager
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.example.ocr_translation.databinding.ActivityMainBinding
+import com.example.ocr_translation.ui.AppTheme
+import com.example.ocr_translation.ui.OptionPicker
 
 
 class MainActivity : AppCompatActivity() {
@@ -28,12 +32,22 @@ class MainActivity : AppCompatActivity() {
 
     private val PERMISSION_CODE = 100
 
+    private companion object {
+        /** language_codes[0]; the only source value that has no valid target counterpart. */
+        const val AUTO_LANGUAGE_CODE = "auto"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before inflation: ?attr/colorPrimary is resolved eagerly by the inflater.
+        AppTheme.applyTo(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        // Makes the status bar continue the accent header band instead of sitting above it.
+        AppTheme.tintStatusBarWithAccent(this)
 
-        setupLanguageSpinners()
+        setupAccentSwatches()
+        setupLanguageRows()
 
         binding.btnStartTranslation.setOnClickListener {
             Log.d("MainActivity", "btnStartTranslation clicked!") // <-- Add Log
@@ -51,56 +65,117 @@ class MainActivity : AppCompatActivity() {
                 .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_OVERLAY))
         }
 
-        binding.spinnerSourceLanguage.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val languageCodes = resources.getStringArray(R.array.language_codes)
-                viewModel.updateSourceLanguage(languageCodes[position])
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-
-        binding.spinnerTargetLanguage.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val languageCodes = resources.getStringArray(R.array.language_codes)
-                viewModel.updateTargetLanguage(languageCodes[position])
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-
         // Observe translation active state
         viewModel.translationActive.observe(this) { active ->
             updateTranslationUI(active)
         }
     }
 
-    private fun setupLanguageSpinners() {
-        val languages = resources.getStringArray(R.array.languages)
-        val languageCodes = resources.getStringArray(R.array.language_codes)
+    /**
+     * Builds the accent swatch row. Picking a colour persists it and recreates the activity —
+     * the accent is a theme overlay, and views resolve `?attr/colorPrimary` at inflation time,
+     * so re-inflating is what repaints them.
+     */
+    private fun setupAccentSwatches() {
+        val container = binding.accentSwatches
+        container.removeAllViews()
+        val selected = AppTheme.selectedIndex(this)
+        val size = dp(30)
+        val gap = dp(10)
 
-
-        val sourceAdapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            languages
-        )
-        binding.spinnerSourceLanguage.adapter = sourceAdapter
-
-        val targetAdapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            languages
-        )
-        binding.spinnerTargetLanguage.adapter = targetAdapter
-
-        // Find position by code instead of name
-        val sourceIndex = languageCodes.indexOf(viewModel.selectedSourceLanguage).takeIf { it >= 0 } ?: 0
-        val targetIndex = languageCodes.indexOf(viewModel.selectedTargetLanguage).takeIf { it >= 0 } ?: 0
-
-        binding.spinnerSourceLanguage.setSelection(sourceIndex)
-        binding.spinnerTargetLanguage.setSelection(targetIndex)
+        AppTheme.accents.forEachIndexed { index, accent ->
+            val swatch = FrameLayout(this).apply {
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_accent_swatch)
+                backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this@MainActivity, accent.colorRes)
+                )
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    if (index > 0) marginStart = gap
+                }
+                contentDescription = getString(R.string.accent_color_selected, index + 1)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (index == selected) return@setOnClickListener
+                    AppTheme.select(this@MainActivity, index)
+                    recreate()
+                }
+            }
+            if (index == selected) {
+                val swatchColor = ContextCompat.getColor(this, accent.colorRes)
+                swatch.addView(
+                    ImageView(this).apply {
+                        setImageResource(R.drawable.ic_ios_check)
+                        // A white check is invisible on the lighter accents.
+                        imageTintList = android.content.res.ColorStateList.valueOf(
+                            AppTheme.contrastOn(swatchColor)
+                        )
+                        layoutParams = FrameLayout.LayoutParams(dp(15), dp(11)).apply {
+                            gravity = Gravity.CENTER
+                        }
+                    }
+                )
+            }
+            container.addView(swatch)
+        }
     }
+
+    /**
+     * The two language Spinners are now grouped-list rows that open a bottom-sheet picker
+     * (design 2a). "Auto-detect" is offered for the source only — it was never a meaningful
+     * target, and the old target Spinner listed it purely because both shared one adapter.
+     */
+    private fun setupLanguageRows() {
+        val languages = resources.getStringArray(R.array.languages).toList()
+        val codes = resources.getStringArray(R.array.language_codes).toList()
+        val targetLanguages = languages.drop(1)
+        val targetCodes = codes.drop(1)
+
+        fun sourceIndex() = codes.indexOf(viewModel.selectedSourceLanguage).takeIf { it >= 0 } ?: 0
+        fun targetIndex() =
+            targetCodes.indexOf(viewModel.selectedTargetLanguage).takeIf { it >= 0 } ?: 0
+
+        fun refresh() {
+            binding.rowSourceLanguage.value = languages[sourceIndex()]
+            binding.rowTargetLanguage.value = targetLanguages[targetIndex()]
+            // Nothing sensible to swap into the target while the source is Auto-detect.
+            val canSwap = viewModel.selectedSourceLanguage != AUTO_LANGUAGE_CODE
+            binding.rowSwapLanguages.isEnabled = canSwap
+            binding.rowSwapLanguages.isClickable = canSwap
+            binding.rowSwapLanguages.alpha = if (canSwap) 1f else 0.35f
+        }
+
+        binding.rowSourceLanguage.setOnClickListener {
+            OptionPicker.show(
+                this, getString(R.string.source_language), languages, sourceIndex()
+            ) { index ->
+                viewModel.updateSourceLanguage(codes[index])
+                refresh()
+            }
+        }
+
+        binding.rowTargetLanguage.setOnClickListener {
+            OptionPicker.show(
+                this, getString(R.string.target_language), targetLanguages, targetIndex()
+            ) { index ->
+                viewModel.updateTargetLanguage(targetCodes[index])
+                refresh()
+            }
+        }
+
+        binding.rowSwapLanguages.setOnClickListener {
+            val oldSource = viewModel.selectedSourceLanguage
+            if (oldSource == AUTO_LANGUAGE_CODE) return@setOnClickListener
+            viewModel.updateSourceLanguage(viewModel.selectedTargetLanguage)
+            viewModel.updateTargetLanguage(oldSource)
+            refresh()
+        }
+
+        // Last, so it wins over the isClickable that setOnClickListener forces on.
+        refresh()
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun updateTranslationUI(active: Boolean) {
         if (active) {
