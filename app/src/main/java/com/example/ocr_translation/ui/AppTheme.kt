@@ -5,7 +5,6 @@ import android.content.Context
 import android.util.TypedValue
 import androidx.annotation.ColorRes
 import androidx.annotation.StyleRes
-import androidx.core.view.WindowCompat
 import com.example.ocr_translation.PreferencesManager
 import com.example.ocr_translation.R
 
@@ -15,7 +14,7 @@ import com.example.ocr_translation.R
  * Switching accents at runtime works by applying one of the
  * `ThemeOverlay.ScreenTranslator.Accent.*` styles over the activity's theme, which means
  * anything tinted by the accent has to resolve `?attr/colorPrimary` rather than reference
- * `@color/primary` directly — that includes the shape drawables (`bg_app_tile`,
+ * `@color/primary` directly — that includes the shape drawables (`bg_accent_dot`,
  * `bg_glyph_tile`) and the two settings screens' nav-bar text.
  */
 object AppTheme {
@@ -53,16 +52,6 @@ object AppTheme {
 
     fun colorPrimaryVariant(context: Context): Int =
         resolveAttr(context, com.google.android.material.R.attr.colorPrimaryVariant)
-
-    /**
-     * Paints the status bar the same shade as the main screen's header band so the two read as
-     * one block, and forces light (white) status-bar icons — every variant is dark enough.
-     */
-    fun tintStatusBarWithAccent(activity: Activity) {
-        activity.window.statusBarColor = colorPrimaryVariant(activity)
-        WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-            .isAppearanceLightStatusBars = false
-    }
 
     /**
      * Black or white, whichever is legible on [background]. Used for glyphs sitting on a tile

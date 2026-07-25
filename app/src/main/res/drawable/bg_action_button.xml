@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Home screen's Start button (design 8b). Accent-filled, so switching swatches re-themes the
+  primary action too. Its label and glyph must use ?attr/colorOnPrimary rather than a fixed
+  white: the green and orange overlays set that to #1A1A1A, because white on those accents is
+  only ~2.2:1.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="?attr/colorPrimary" />
+    <corners android:radius="16dp" />
+</shape>

@@ -8,6 +8,15 @@
     <!-- Main activity -->
     <string name="start_translation">Start Translation</string>
     <string name="stop_translation">Stop Translation</string>
+    <!-- Home screen (design 8a): the button label is short because the eyebrow above already
+         says what the screen does. -->
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="home_eyebrow">TRANSLATING</string>
+    <string name="home_eyebrow_active">TRANSLATION RUNNING</string>
+    <!-- Right-hand value on the Display settings row -->
+    <string name="overlay_mode_in_place">In place</string>
+    <string name="overlay_mode_merged">Merged</string>
     <string name="settings">Settings</string>
     <string name="enhanced_ocr_settings">Enhanced OCR</string>
     <string name="language_settings">Language Settings</string>

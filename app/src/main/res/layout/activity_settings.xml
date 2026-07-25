@@ -16,9 +16,14 @@
     tools:context=".SettingsActivity">
 
     <!-- ============ NAV BAR ============ -->
+    <!--
+      All three items sit on one bottom line: Back and Save keep the full 56dp height for their
+      touch targets but bottom-align their text with the same 11dp padding as the title, so the
+      22sp title grows upward out of that shared edge rather than being centred independently.
+    -->
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="44dp">
+        android:layout_height="56dp">
 
         <LinearLayout
             android:id="@+id/btnNavBack"
@@ -28,10 +33,11 @@
             android:background="?attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
-            android:gravity="center_vertical"
+            android:gravity="bottom"
             android:orientation="horizontal"
             android:paddingStart="12dp"
-            android:paddingEnd="12dp">
+            android:paddingEnd="12dp"
+            android:paddingBottom="11dp">
 
             <ImageView
                 android:layout_width="9dp"
@@ -50,15 +56,27 @@
                 android:textSize="17sp" />
         </LinearLayout>
 
+        <!--
+          22sp rather than iOS's 17sp. The horizontal margins cap its width so a long title
+          can't run under Back or Save — in a FrameLayout a centre-gravity child's wrap_content
+          is bounded by parent minus margins — and autosize shrinks it instead of ellipsising.
+        -->
         <TextView
             android:id="@+id/textNavTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
+            android:layout_gravity="center_horizontal|bottom"
+            android:layout_marginStart="78dp"
+            android:layout_marginEnd="78dp"
             android:letterSpacing="-0.02"
+            android:maxLines="1"
+            android:paddingBottom="11dp"
             android:textColor="@color/ios_label"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:textSize="22sp"
+            android:textStyle="bold"
+            app:autoSizeMaxTextSize="22sp"
+            app:autoSizeMinTextSize="15sp"
+            app:autoSizeTextType="uniform" />
 
         <TextView
             android:id="@+id/btnSaveSettings"
@@ -68,10 +86,11 @@
             android:background="?attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
-            android:gravity="center_vertical"
+            android:gravity="bottom"
             android:letterSpacing="-0.02"
             android:paddingStart="16dp"
             android:paddingEnd="16dp"
+            android:paddingBottom="11dp"
             android:text="@string/save"
             android:textColor="?attr/colorPrimary"
             android:textSize="17sp"
@@ -149,7 +168,7 @@
                             android:layout_marginStart="12dp"
                             android:layout_weight="1"
                             android:background="@null"
-                            android:gravity="end"
+                            android:gravity="end|center_vertical"
                             android:hint="@string/api_key_unset"
                             android:importantForAutofill="no"
                             android:inputType="textPassword"
@@ -157,10 +176,12 @@
                             android:maxLines="1"
                             android:minHeight="36dp"
                             android:paddingStart="0dp"
+                            android:paddingTop="0dp"
                             android:paddingEnd="0dp"
+                            android:paddingBottom="0dp"
                             android:textColor="@color/ios_label"
                             android:textColorHint="@color/ios_label_tertiary"
-                            android:textSize="17sp" />
+                            android:textSize="14sp" />
 
                         <!-- Keeps the reveal affordance the old TextInputLayout's
                              endIconMode="password_toggle" provided -->

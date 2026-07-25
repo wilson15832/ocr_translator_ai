@@ -13,7 +13,6 @@ import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
 import com.example.ocr_translation.R
-import com.example.ocr_translation.ui.AppTheme
 
 /**
  * A single 44dp row of an iOS grouped list: 17sp label on the left, an optional grey value
@@ -107,12 +106,6 @@ class SettingsRow @JvmOverloads constructor(
                 )
             }
 
-            val textSize = ta.getDimensionPixelSize(R.styleable.SettingsRow_srTextSize, 0)
-            if (textSize > 0) {
-                titleView.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSize.toFloat())
-                valueView.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSize.toFloat())
-            }
-
             val accessory = ta.getInt(R.styleable.SettingsRow_srAccessory, ACCESSORY_NONE)
             val role = ta.getInt(R.styleable.SettingsRow_srRole, ROLE_NORMAL)
             val centerTitle = ta.getBoolean(
@@ -124,15 +117,6 @@ class SettingsRow @JvmOverloads constructor(
             // The text column already spans the row's width, so gravity is enough here.
             if (centerTitle) titleView.gravity = Gravity.CENTER
 
-            val titleIcon = ta.getResourceId(R.styleable.SettingsRow_srTitleIcon, 0)
-            if (titleIcon != 0) {
-                titleView.setCompoundDrawablesRelativeWithIntrinsicBounds(titleIcon, 0, 0, 0)
-                titleView.compoundDrawablePadding = dp(6)
-                androidx.core.widget.TextViewCompat.setCompoundDrawableTintList(
-                    titleView,
-                    android.content.res.ColorStateList.valueOf(titleView.currentTextColor)
-                )
-            }
         } finally {
             ta.recycle()
         }

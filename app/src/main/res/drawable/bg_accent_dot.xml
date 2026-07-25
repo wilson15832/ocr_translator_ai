@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 56dp app-icon squircle in the main screen's hero row. -->
+<!-- Round accent chip: the collapsed theme picker top-right, and the swap button's fill. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
+    android:shape="oval">
     <solid android:color="?attr/colorPrimary" />
-    <corners android:radius="14dp" />
 </shape>

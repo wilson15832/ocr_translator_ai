@@ -47,5 +47,22 @@
     <color name="accent_green_dark">#34C759</color>
     <color name="accent_orange_dark">#FF9500</color>
     <color name="accent_pink_dark">#FF375F</color>
-    <color name="accent_graphite_dark">#636366</color>
+    <!-- Lifted well clear of the dark paper: this shade carries 12sp text -->
+    <color name="accent_graphite_dark">#AEAEB2</color>
+
+    <!--
+      Every night accent is bright enough that white text on it fails: blue 2.90:1, purple
+      3.52:1, green 2.02:1, orange 2.06:1, pink 2.84:1, graphite 3.26:1. Dark text clears 4.9:1
+      on all six, so the accent-filled Start button and the swap circle flip their label here.
+    -->
+    <color name="accent_on">#1A1A1A</color>
+
+    <!-- Home screen inverts: dark paper, light type -->
+    <color name="home_paper">#121212</color>
+    <color name="home_text">#F5F3EF</color>
+    <color name="home_value">#8CFFFFFF</color>
+    <color name="home_chevron">#59FFFFFF</color>
+    <color name="home_footnote">#8AFFFFFF</color>
+    <color name="home_hairline">#1FFFFFFF</color>
+    <color name="home_rule">#2EFFFFFF</color>
 </resources>

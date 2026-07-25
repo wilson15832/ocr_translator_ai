@@ -61,8 +61,27 @@
     <color name="accent_pink_dark">#C21F40</color>
     <color name="accent_graphite_dark">#3A3D41</color>
 
-    <!-- colorOnPrimary for the accents that are too light to carry white text -->
+    <!--
+      colorOnPrimary for the darker accents. White works in the day build, but the night accents
+      are lightened for a black background and then white fails on every one of them (night blue
+      is 2.90:1, night pink 2.84:1) — hence the values-night override to dark.
+    -->
+    <color name="accent_on">#FFFFFF</color>
+    <!-- For accents that are too light for white text in either build (green, orange) -->
     <color name="accent_on_light">#1A1A1A</color>
+
+    <!--
+      Home screen (design 8a/8b). Warm paper rather than the settings screens' cool grey, and no
+      cards — the type and the hairlines carry the structure instead. The accent itself comes
+      from the theme, so nothing accent-coloured is listed here.
+    -->
+    <color name="home_paper">#FBFAF7</color>
+    <color name="home_text">#141414</color>
+    <color name="home_value">#59000000</color>
+    <color name="home_chevron">#38000000</color>
+    <color name="home_footnote">#61000000</color>
+    <color name="home_hairline">#17000000</color>
+    <color name="home_rule">#1F000000</color>
 
     <color name="on_primary">#FFFFFF</color>
     <color name="on_secondary">#000000</color>

@@ -35,6 +35,17 @@
     </style>
 
     <!--
+      Home screen only. Its paper is warmer than the settings screens' grouped grey, so without
+      this the launcher activity flashes #F2F2F7 before the layout paints. windowLightStatusBar
+      is inherited and already correct for paper.
+    -->
+    <style name="Theme.ScreenTranslator.Home">
+        <item name="android:windowBackground">@color/home_paper</item>
+        <item name="android:statusBarColor">@color/home_paper</item>
+        <item name="android:navigationBarColor">@color/home_paper</item>
+    </style>
+
+    <!--
       Accent overlays applied at runtime by ui/AppTheme.kt. They only move colorPrimary /
       colorPrimaryVariant; everything tinted by the accent references ?attr/colorPrimary rather
       than @color/primary, so switching one of these repaints the whole app.
@@ -42,35 +53,37 @@
     <style name="ThemeOverlay.ScreenTranslator.Accent.Blue" parent="">
         <item name="colorPrimary">@color/accent_blue</item>
         <item name="colorPrimaryVariant">@color/accent_blue_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
     </style>
 
     <style name="ThemeOverlay.ScreenTranslator.Accent.Purple" parent="">
         <item name="colorPrimary">@color/accent_purple</item>
         <item name="colorPrimaryVariant">@color/accent_purple_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
     </style>
 
     <style name="ThemeOverlay.ScreenTranslator.Accent.Green" parent="">
         <item name="colorPrimary">@color/accent_green</item>
         <item name="colorPrimaryVariant">@color/accent_green_dark</item>
-        <!-- Too light for white text: white on this accent is only ~2.2:1 -->
         <item name="colorOnPrimary">@color/accent_on_light</item>
     </style>
 
     <style name="ThemeOverlay.ScreenTranslator.Accent.Orange" parent="">
         <item name="colorPrimary">@color/accent_orange</item>
         <item name="colorPrimaryVariant">@color/accent_orange_dark</item>
-        <!-- Too light for white text: white on this accent is only ~2.2:1 -->
         <item name="colorOnPrimary">@color/accent_on_light</item>
     </style>
 
     <style name="ThemeOverlay.ScreenTranslator.Accent.Pink" parent="">
         <item name="colorPrimary">@color/accent_pink</item>
         <item name="colorPrimaryVariant">@color/accent_pink_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
     </style>
 
     <style name="ThemeOverlay.ScreenTranslator.Accent.Graphite" parent="">
         <item name="colorPrimary">@color/accent_graphite</item>
         <item name="colorPrimaryVariant">@color/accent_graphite_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
     </style>
 
     <!-- Transparent-background sheet so the picker's own rounded card defines the shape -->
@@ -132,9 +145,13 @@
         <item name="android:textColor">@color/ios_label</item>
     </style>
 
+    <!--
+      Deliberately a clear step below IosRowLabel's 17sp rather than matching it: the label names
+      the setting, the value only reports its current state.
+    -->
     <style name="IosRowValue">
-        <item name="android:textSize">17sp</item>
-        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:letterSpacing">-0.01</item>
         <item name="android:textColor">@color/ios_label_secondary</item>
     </style>
 
@@ -174,21 +191,6 @@
         <item name="thumbTextPadding">0dp</item>
         <item name="showText">false</item>
         <item name="splitTrack">false</item>
-    </style>
-
-    <!-- Filled accent button (Start Translation) -->
-    <style name="IosPrimaryButton" parent="Widget.MaterialComponents.Button">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">50dp</item>
-        <item name="android:textSize">17sp</item>
-        <item name="android:textStyle">bold</item>
-        <item name="android:letterSpacing">-0.02</item>
-        <item name="android:textAllCaps">false</item>
-        <item name="cornerRadius">14dp</item>
-        <item name="iconGravity">textStart</item>
-        <item name="iconPadding">8dp</item>
-        <item name="iconSize">19dp</item>
-        <item name="elevation">0dp</item>
     </style>
 
     <!-- ==================== legacy (overlay-only) ==================== -->

@@ -9,7 +9,10 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.transition.AutoTransition
+import android.transition.TransitionManager
 import android.view.Gravity
+import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.widget.FrameLayout
@@ -43,11 +46,9 @@ class MainActivity : AppCompatActivity() {
         AppTheme.applyTo(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        // Makes the status bar continue the accent header band instead of sitting above it.
-        AppTheme.tintStatusBarWithAccent(this)
 
-        setupAccentSwatches()
-        setupLanguageRows()
+        setupAccentPicker()
+        setupLanguagePair()
 
         binding.btnStartTranslation.setOnClickListener {
             Log.d("MainActivity", "btnStartTranslation clicked!") // <-- Add Log
@@ -72,23 +73,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Builds the accent swatch row. Picking a colour persists it and recreates the activity —
-     * the accent is a theme overlay, and views resolve `?attr/colorPrimary` at inflation time,
-     * so re-inflating is what repaints them.
+     * Theme picker. Collapsed it is the accent dot top-right; tapping expands a bar of swatches
+     * beneath it (design 6b/8a put a preference of this weight there rather than in a headline
+     * band). Picking one persists it and recreates the activity — the accent is a theme overlay
+     * and views resolve `?attr/colorPrimary` at inflation time, so re-inflating is the repaint.
      */
-    private fun setupAccentSwatches() {
+    private fun setupAccentPicker() {
         val container = binding.accentSwatches
         container.removeAllViews()
         val selected = AppTheme.selectedIndex(this)
-        val size = dp(30)
-        val gap = dp(10)
+        val size = dp(26)
+        val gap = dp(9)
 
         AppTheme.accents.forEachIndexed { index, accent ->
+            val swatchColor = ContextCompat.getColor(this, accent.colorRes)
             val swatch = FrameLayout(this).apply {
-                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_accent_swatch)
-                backgroundTintList = android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this@MainActivity, accent.colorRes)
-                )
+                background =
+                    ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_accent_swatch)
+                backgroundTintList = android.content.res.ColorStateList.valueOf(swatchColor)
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
                     if (index > 0) marginStart = gap
                 }
@@ -102,7 +104,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             if (index == selected) {
-                val swatchColor = ContextCompat.getColor(this, accent.colorRes)
                 swatch.addView(
                     ImageView(this).apply {
                         setImageResource(R.drawable.ic_ios_check)
@@ -110,7 +111,7 @@ class MainActivity : AppCompatActivity() {
                         imageTintList = android.content.res.ColorStateList.valueOf(
                             AppTheme.contrastOn(swatchColor)
                         )
-                        layoutParams = FrameLayout.LayoutParams(dp(15), dp(11)).apply {
+                        layoutParams = FrameLayout.LayoutParams(dp(14), dp(10)).apply {
                             gravity = Gravity.CENTER
                         }
                     }
@@ -118,14 +119,27 @@ class MainActivity : AppCompatActivity() {
             }
             container.addView(swatch)
         }
+
+        binding.btnAccentToggle.setOnClickListener {
+            val expanded = container.visibility == View.VISIBLE
+            // Animates the row's appearance without hand-written animators.
+            TransitionManager.beginDelayedTransition(
+                binding.root as android.view.ViewGroup, AutoTransition().setDuration(160)
+            )
+            container.visibility = if (expanded) View.GONE else View.VISIBLE
+            binding.accentChevron.animate().rotation(if (expanded) 0f else 90f)
+                .setDuration(160).start()
+        }
     }
 
     /**
-     * The two language Spinners are now grouped-list rows that open a bottom-sheet picker
-     * (design 2a). "Auto-detect" is offered for the source only — it was never a meaningful
-     * target, and the old target Spinner listed it purely because both shared one adapter.
+     * The language pair is the screen: two 56sp words the user taps to open a bottom-sheet
+     * picker, with the accent circle between them swapping the two.
+     *
+     * "Auto-detect" is offered for the source only — it was never a meaningful target, and the
+     * old target Spinner listed it purely because both shared one adapter.
      */
-    private fun setupLanguageRows() {
+    private fun setupLanguagePair() {
         val languages = resources.getStringArray(R.array.languages).toList()
         val codes = resources.getStringArray(R.array.language_codes).toList()
         val targetLanguages = languages.drop(1)
@@ -136,16 +150,16 @@ class MainActivity : AppCompatActivity() {
             targetCodes.indexOf(viewModel.selectedTargetLanguage).takeIf { it >= 0 } ?: 0
 
         fun refresh() {
-            binding.rowSourceLanguage.value = languages[sourceIndex()]
-            binding.rowTargetLanguage.value = targetLanguages[targetIndex()]
+            binding.textSourceLanguage.text = languages[sourceIndex()]
+            binding.textTargetLanguage.text = targetLanguages[targetIndex()]
             // Nothing sensible to swap into the target while the source is Auto-detect.
             val canSwap = viewModel.selectedSourceLanguage != AUTO_LANGUAGE_CODE
-            binding.rowSwapLanguages.isEnabled = canSwap
-            binding.rowSwapLanguages.isClickable = canSwap
-            binding.rowSwapLanguages.alpha = if (canSwap) 1f else 0.35f
+            binding.btnSwapLanguages.isEnabled = canSwap
+            binding.btnSwapLanguages.isClickable = canSwap
+            binding.btnSwapLanguages.alpha = if (canSwap) 1f else 0.3f
         }
 
-        binding.rowSourceLanguage.setOnClickListener {
+        binding.textSourceLanguage.setOnClickListener {
             OptionPicker.show(
                 this, getString(R.string.source_language), languages, sourceIndex()
             ) { index ->
@@ -154,7 +168,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        binding.rowTargetLanguage.setOnClickListener {
+        binding.textTargetLanguage.setOnClickListener {
             OptionPicker.show(
                 this, getString(R.string.target_language), targetLanguages, targetIndex()
             ) { index ->
@@ -163,7 +177,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        binding.rowSwapLanguages.setOnClickListener {
+        binding.btnSwapLanguages.setOnClickListener {
             val oldSource = viewModel.selectedSourceLanguage
             if (oldSource == AUTO_LANGUAGE_CODE) return@setOnClickListener
             viewModel.updateSourceLanguage(viewModel.selectedTargetLanguage)
@@ -175,16 +189,28 @@ class MainActivity : AppCompatActivity() {
         refresh()
     }
 
+    /**
+     * Fills in the right-hand value on each settings row, so the home screen reports the current
+     * configuration instead of only linking to it. Refreshed in onResume, since both values can
+     * be changed on the screen the row opens.
+     */
+    private fun refreshSettingsRowValues() {
+        val prefs = PreferencesManager.getInstance(this)
+        binding.textTranslationValue.text =
+            LlmProvider.fromModel(prefs.modelName).displayName
+        binding.textOverlayValue.setText(
+            if (prefs.inPlaceMode) R.string.overlay_mode_in_place else R.string.overlay_mode_merged
+        )
+    }
+
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun updateTranslationUI(active: Boolean) {
-        if (active) {
-            binding.btnStartTranslation.text = getString(R.string.stop_translation)
-            binding.btnStartTranslation.setIconResource(R.drawable.ic_stop)
-        } else {
-            binding.btnStartTranslation.text = getString(R.string.start_translation)
-            binding.btnStartTranslation.setIconResource(R.drawable.ic_start)
-        }
+        binding.textStart.setText(if (active) R.string.stop else R.string.start)
+        binding.iconStart.setImageResource(if (active) R.drawable.ic_stop else R.drawable.ic_start)
+        binding.textEyebrow.setText(
+            if (active) R.string.home_eyebrow_active else R.string.home_eyebrow
+        )
     }
 
     private fun checkAndRequestPermissions() {
@@ -369,6 +395,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+
+        // Both row values can be changed on the screen the row opens, so re-read them here.
+        refreshSettingsRowValues()
 
         // Check if services are still running
         if (viewModel.translationActive.value == true) {

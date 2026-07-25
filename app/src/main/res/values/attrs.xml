@@ -22,10 +22,6 @@
         </attr>
         <!-- Accent / destructive rows are centred like an iOS action row -->
         <attr name="srCenterTitle" format="boolean" />
-        <!-- Title/value type size; default 17sp. Bumped for the prominent From/To rows. -->
-        <attr name="srTextSize" format="dimension" />
-        <!-- Glyph drawn immediately before the title text, tinted to match it (swap row) -->
-        <attr name="srTitleIcon" format="reference" />
     </declare-styleable>
 
     <!-- com.example.ocr_translation.ui.SettingsSliderRow -->

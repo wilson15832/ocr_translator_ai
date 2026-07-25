@@ -1,23 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Main screen. Four blocks, top to bottom:
-    1. Accent-coloured header band — title + description, contiguous with the status bar
-       (MainActivity paints the status bar the same accent, so no inset maths is needed here).
-    2. Theme row — the app glyph plus six accent swatches; picking one recreates the activity.
-    3. Language card — From / To at 20sp with a swap row underneath.
-    4. Start button, then the two settings entries.
+  Home screen, design 8a ("Editorial — the language pair is the screen", accent-tinted).
 
-  On phones taller than the design's 393x852 reference, fixed margins would leave everything
-  crammed into the top half. The weighted spacers absorb that surplus (2:1). A weighted Space
-  with height 0dp collapses to nothing when there's no surplus, so the fixed margins still
-  define the minimum spacing and short screens fall back to plain scrolling.
+  No header band and no cards: the app name lives in the launcher, so the screen opens on the
+  only state worth confirming — Japanese becomes English, at 56sp, readable at arm's length.
+  Start sits at the bottom as the largest object, with a flex spacer above it, which is what
+  removes the empty middle the previous layout had.
+
+  Two colour rules from the design doc, and they are not interchangeable:
+    - Anything drawn directly on the paper (eyebrow, target language, row glyphs) uses
+      ?attr/colorPrimaryVariant. The raw accent fails on paper — accent_green on #FBFAF7 is
+      about 1.9:1.
+    - The raw ?attr/colorPrimary is reserved for filled surfaces (the swap circle, the accent
+      dot), where white or #1A1A1A sits on top of it.
+    - Chevrons stay grey. Tinting a 15dp hairline glyph only makes it harder to see.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/ios_grouped_bg"
+    android:background="@color/home_paper"
     android:fillViewport="true"
     android:fitsSystemWindows="true"
     tools:context=".MainActivity">
@@ -25,184 +28,322 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingBottom="20dp">
+        android:orientation="vertical">
 
-        <!-- 1. Header band -->
-        <!--
-          colorPrimaryVariant, not colorPrimary: the raw accents are too light to carry white
-          text (white on green/orange is ~2.2:1), while every variant clears 4.5:1.
-        -->
+        <!-- Theme picker, collapsed: accent dot + chevron, top right -->
         <LinearLayout
-            android:id="@+id/headerBand"
-            android:layout_width="match_parent"
+            android:id="@+id/btnAccentToggle"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="?attr/colorPrimaryVariant"
-            android:orientation="vertical"
+            android:layout_gravity="end"
+            android:layout_marginTop="8dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/accent_color"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="44dp"
+            android:orientation="horizontal"
             android:paddingStart="16dp"
-            android:paddingTop="20dp"
-            android:paddingEnd="16dp"
-            android:paddingBottom="22dp">
+            android:paddingEnd="20dp">
 
-            <TextView
-                android:id="@+id/textAppTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:letterSpacing="-0.021"
-                android:text="@string/app_name"
-                android:textColor="@color/on_primary"
-                android:textSize="34sp"
-                android:textStyle="bold" />
+            <View
+                android:id="@+id/accentDot"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:background="@drawable/bg_accent_dot" />
 
-            <TextView
-                android:id="@+id/textAppDescription"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:lineSpacingExtra="2sp"
-                android:text="@string/app_description"
-                android:textColor="#EBFFFFFF"
-                android:textSize="15sp" />
+            <ImageView
+                android:id="@+id/accentChevron"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="7dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
         </LinearLayout>
 
-        <!-- 2. Accent picker: app glyph + swatches (filled in by MainActivity) -->
-        <com.example.ocr_translation.ui.SettingsGroup
-            style="@style/IosGroup"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="20dp"
-            android:layout_marginEnd="16dp">
+        <!-- Expanded state: the swatch bar, filled in by MainActivity -->
+        <LinearLayout
+            android:id="@+id/accentSwatches"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginEnd="20dp"
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:minHeight="56dp"
-                android:orientation="horizontal"
-                android:paddingStart="16dp"
-                android:paddingTop="9dp"
-                android:paddingEnd="16dp"
-                android:paddingBottom="9dp">
-
-                <FrameLayout
-                    android:layout_width="38dp"
-                    android:layout_height="38dp"
-                    android:background="@drawable/bg_glyph_tile">
-
-                    <ImageView
-                        android:id="@+id/imageAppLogo"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:contentDescription="@string/app_logo"
-                        android:src="@drawable/ic_translate"
-                        app:tint="?attr/colorOnPrimary" />
-                </FrameLayout>
-
-                <LinearLayout
-                    android:id="@+id/accentSwatches"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:gravity="end|center_vertical"
-                    android:orientation="horizontal" />
-            </LinearLayout>
-        </com.example.ocr_translation.ui.SettingsGroup>
-
-        <!-- A sixth of the surplus, so the top isn't dense while the rest is empty -->
-        <Space
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
-        <!-- 3. Languages -->
+        <!-- Eyebrow -->
         <TextView
-            style="@style/IosGroupHeader"
-            android:layout_marginTop="24dp"
-            android:text="@string/language_settings" />
+            android:id="@+id/textEyebrow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:letterSpacing="0.133"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:text="@string/home_eyebrow"
+            android:textColor="?attr/colorPrimaryVariant"
+            android:textSize="12sp" />
 
-        <com.example.ocr_translation.ui.SettingsGroup
-            android:id="@+id/cardLanguageSettings"
-            style="@style/IosGroup"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp">
+        <!-- The language pair: the point of the screen -->
+        <TextView
+            android:id="@+id/textSourceLanguage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:letterSpacing="-0.043"
+            android:maxLines="1"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:textColor="@color/home_text"
+            android:textStyle="bold"
+            android:textSize="56sp"
+            app:autoSizeMaxTextSize="56sp"
+            app:autoSizeMinTextSize="26sp"
+            app:autoSizeTextType="uniform"
+            tools:text="Japanese" />
 
-            <com.example.ocr_translation.ui.SettingsRow
-                android:id="@+id/rowSourceLanguage"
-                android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp">
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1"
+                android:background="@color/home_rule" />
+
+            <FrameLayout
+                android:id="@+id/btnSwapLanguages"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="14dp"
+                android:layout_marginEnd="14dp"
+                android:background="@drawable/bg_accent_dot"
+                android:clickable="true"
+                android:contentDescription="@string/swap_languages"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/iconSwap"
+                    android:layout_width="21dp"
+                    android:layout_height="21dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_swap_updown"
+                    app:tint="?attr/colorOnPrimary" />
+            </FrameLayout>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1"
+                android:background="@color/home_rule" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/textTargetLanguage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:letterSpacing="-0.043"
+            android:maxLines="1"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:textColor="?attr/colorPrimaryVariant"
+            android:textStyle="bold"
+            android:textSize="56sp"
+            app:autoSizeMaxTextSize="56sp"
+            app:autoSizeMinTextSize="26sp"
+            app:autoSizeTextType="uniform"
+            tools:text="English" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginTop="38dp"
+            android:layout_marginEnd="26dp"
+            android:background="@color/home_hairline" />
+
+        <!--
+          Settings rows. Each carries its current value on the right at a visibly smaller size
+          than the label (16sp label / 14sp value), so the screen doubles as a status readout.
+        -->
+        <LinearLayout
+            android:id="@+id/cardTranslationSettings"
+            android:layout_width="match_parent"
+            android:layout_height="62dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_translate"
+                app:tint="?attr/colorPrimaryVariant" />
+
+            <TextView
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                app:srAccessory="chevron"
-                app:srTextSize="20sp"
-                app:srTitle="@string/source_language" />
+                android:layout_marginStart="13dp"
+                android:layout_weight="1"
+                android:text="@string/translation_settings"
+                android:textColor="@color/home_text"
+                android:textSize="16sp" />
 
-            <com.example.ocr_translation.ui.SettingsRow
-                android:id="@+id/rowTargetLanguage"
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/textTranslationValue"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                app:srAccessory="chevron"
-                app:srTextSize="20sp"
-                app:srTitle="@string/target_language" />
+                android:layout_marginStart="8dp"
+                android:maxLines="1"
+                android:textColor="@color/home_value"
+                android:textSize="14sp"
+                tools:text="Gemini" />
 
-            <com.example.ocr_translation.ui.SettingsRow
-                android:id="@+id/rowSwapLanguages"
-                android:layout_width="match_parent"
+            <ImageView
+                android:layout_width="15dp"
+                android:layout_height="15dp"
+                android:layout_marginStart="6dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginEnd="26dp"
+            android:background="@color/home_hairline" />
+
+        <LinearLayout
+            android:id="@+id/cardOverlaySettings"
+            android:layout_width="match_parent"
+            android:layout_height="62dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_settings"
+                app:tint="?attr/colorPrimaryVariant" />
+
+            <TextView
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                app:srCenterTitle="true"
-                app:srRole="accent"
-                app:srTitle="@string/swap_languages"
-                app:srTitleIcon="@drawable/ic_swap_vert" />
-        </com.example.ocr_translation.ui.SettingsGroup>
+                android:layout_marginStart="13dp"
+                android:layout_weight="1"
+                android:text="@string/display_settings"
+                android:textColor="@color/home_text"
+                android:textSize="16sp" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnStartTranslation"
-            style="@style/IosPrimaryButton"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="28dp"
-            android:layout_marginEnd="16dp"
-            android:text="@string/start_translation"
-            app:icon="@drawable/ic_start" />
+            <TextView
+                android:id="@+id/textOverlayValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:maxLines="1"
+                android:textColor="@color/home_value"
+                android:textSize="14sp"
+                tools:text="In place" />
 
-        <!-- The bulk of the surplus -->
+            <ImageView
+                android:layout_width="15dp"
+                android:layout_height="15dp"
+                android:layout_marginStart="6dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginEnd="26dp"
+            android:background="@color/home_hairline" />
+
+        <!-- Everything left over, so Start lands on the bottom edge on any screen height -->
         <Space
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="3" />
-
-        <!-- 4. Settings entry points -->
-        <com.example.ocr_translation.ui.SettingsGroup
-            style="@style/IosGroup"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="26dp"
-            android:layout_marginEnd="16dp">
-
-            <com.example.ocr_translation.ui.SettingsRow
-                android:id="@+id/cardTranslationSettings"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:srAccessory="chevron"
-                app:srIcon="@drawable/ic_translate"
-                app:srTitle="@string/translation_settings" />
-
-            <com.example.ocr_translation.ui.SettingsRow
-                android:id="@+id/cardOverlaySettings"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                app:srAccessory="chevron"
-                app:srIcon="@drawable/ic_settings"
-                app:srIconBackground="@color/glyph_tile_grey"
-                app:srTitle="@string/display_settings" />
-        </com.example.ocr_translation.ui.SettingsGroup>
+            android:layout_weight="1"
+            android:minHeight="32dp" />
 
         <TextView
             android:id="@+id/textPermissionsInfo"
-            style="@style/IosFootnote"
-            android:text="@string/permissions_info" />
-
-        <!-- Keeps the block above off the bottom edge rather than pinned to it -->
-        <Space
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="2" />
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="3sp"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:text="@string/permissions_info"
+            android:textColor="@color/home_footnote"
+            android:textSize="12.5sp" />
+
+        <LinearLayout
+            android:id="@+id/btnStartTranslation"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="26dp"
+            android:layout_marginBottom="30dp"
+            android:background="@drawable/bg_action_button"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/iconStart"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_start"
+                app:tint="?attr/colorOnPrimary" />
+
+            <TextView
+                android:id="@+id/textStart"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:letterSpacing="-0.012"
+                android:text="@string/start"
+                android:textColor="?attr/colorOnPrimary"
+                android:textStyle="bold"
+                android:textSize="17sp" />
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>
