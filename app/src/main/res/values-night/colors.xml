@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dark counterparts for the app-chrome colours only. Overlay colours (overlay_background,
+  control_panel_background, translation_text_color, …) are deliberately NOT overridden here:
+  the overlay draws on top of games, never on an app surface, so it must not follow the
+  system theme.
+-->
+<resources>
+    <!-- Accent: #4285F4 is too dim against a black background for 17sp text, so the night
+         build uses the existing lighter brand tint instead. -->
+    <color name="primary">#5E97F6</color>
+    <color name="primary_dark">#4285F4</color>
+
+    <color name="background">#000000</color>
+    <color name="surface">#1C1C1E</color>
+    <color name="error">#FF453A</color>
+    <color name="on_surface_muted">#99EBEBF5</color>
+
+    <color name="on_background">#FFFFFF</color>
+    <color name="on_surface">#FFFFFF</color>
+
+    <color name="ios_grouped_bg">#000000</color>
+    <color name="ios_card">#1C1C1E</color>
+    <color name="ios_separator">#38383A</color>
+    <color name="ios_label">#FFFFFF</color>
+    <color name="ios_label_secondary">#99EBEBF5</color>
+    <color name="ios_label_tertiary">#4DEBEBF5</color>
+    <color name="ios_fill_secondary">#24787880</color>
+    <color name="ios_destructive">#FF453A</color>
+    <color name="ios_switch_on">#30D158</color>
+    <color name="ios_switch_off">#39393D</color>
+    <color name="ios_switch_thumb">#FFFFFF</color>
+    <color name="ios_segment_thumb">#636366</color>
+    <color name="ios_preview_bg">#2C2C2E</color>
+    <color name="glyph_tile_grey">#636366</color>
+
+    <!-- Accents lightened for a black background (iOS dark system colours) -->
+    <color name="accent_blue">#5E97F6</color>
+    <color name="accent_purple">#BF5AF2</color>
+    <color name="accent_green">#30D158</color>
+    <color name="accent_orange">#FF9F0A</color>
+    <color name="accent_pink">#FF6482</color>
+    <color name="accent_graphite">#8E8E93</color>
+
+    <color name="accent_blue_dark">#4285F4</color>
+    <color name="accent_purple_dark">#AF52DE</color>
+    <color name="accent_green_dark">#34C759</color>
+    <color name="accent_orange_dark">#FF9500</color>
+    <color name="accent_pink_dark">#FF375F</color>
+    <!-- Lifted well clear of the dark paper: this shade carries 12sp text -->
+    <color name="accent_graphite_dark">#AEAEB2</color>
+
+    <!--
+      Every night accent is bright enough that white text on it fails: blue 2.90:1, purple
+      3.52:1, green 2.02:1, orange 2.06:1, pink 2.84:1, graphite 3.26:1. Dark text clears 4.9:1
+      on all six, so the accent-filled Start button and the swap circle flip their label here.
+    -->
+    <color name="accent_on">#1A1A1A</color>
+
+    <!-- Home screen inverts: dark paper, light type -->
+    <color name="home_paper">#121212</color>
+    <color name="home_text">#F5F3EF</color>
+    <color name="home_value">#8CFFFFFF</color>
+    <color name="home_chevron">#59FFFFFF</color>
+    <color name="home_footnote">#8AFFFFFF</color>
+    <color name="home_hairline">#1FFFFFFF</color>
+    <color name="home_rule">#2EFFFFFF</color>
+</resources>

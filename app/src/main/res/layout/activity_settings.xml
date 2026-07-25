@@ -1,778 +1,703 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  Settings, iOS-style (design doc 2b / 2c). Every setting and every group from the previous
+  version is still here; what changed is the presentation: inset grouped cards instead of
+  Material cards, one 44dp row per setting with the value right-aligned, and Save promoted
+  from a bottom button to the nav bar.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
+    android:background="@color/ios_grouped_bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical"
     tools:context=".SettingsActivity">
 
-    <LinearLayout
+    <!-- ============ NAV BAR ============ -->
+    <!--
+      All three items sit on one bottom line: Back and Save keep the full 56dp height for their
+      touch targets but bottom-align their text with the same 11dp padding as the title, so the
+      22sp title grows upward out of that shared edge rather than being centred independently.
+    -->
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:layout_height="56dp">
 
-        <!-- ============ TRANSLATION GROUP ============ -->
         <LinearLayout
-            android:id="@+id/groupTranslation"
+            android:id="@+id/btnNavBack"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="bottom"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="11dp">
+
+            <ImageView
+                android:layout_width="9dp"
+                android:layout_height="15dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_ios_chevron_left"
+                app:tint="?attr/colorPrimary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="5dp"
+                android:letterSpacing="-0.02"
+                android:text="@string/back"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="17sp" />
+        </LinearLayout>
+
+        <!--
+          22sp rather than iOS's 17sp. The horizontal margins cap its width so a long title
+          can't run under Back or Save — in a FrameLayout a centre-gravity child's wrap_content
+          is bounded by parent minus margins — and autosize shrinks it instead of ellipsising.
+        -->
+        <TextView
+            android:id="@+id/textNavTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal|bottom"
+            android:layout_marginStart="78dp"
+            android:layout_marginEnd="78dp"
+            android:letterSpacing="-0.02"
+            android:maxLines="1"
+            android:paddingBottom="11dp"
+            android:textColor="@color/ios_label"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            app:autoSizeMaxTextSize="22sp"
+            app:autoSizeMinTextSize="15sp"
+            app:autoSizeTextType="uniform" />
+
+        <TextView
+            android:id="@+id/btnSaveSettings"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_gravity="end"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="bottom"
+            android:letterSpacing="-0.02"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="11dp"
+            android:text="@string/save"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+
+    <View style="@style/IosHairline" />
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:paddingBottom="32dp">
 
-            <!-- LLM API -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
+            <!-- ================================================================ -->
+            <!-- ============ TRANSLATION GROUP ============ -->
+            <!-- ================================================================ -->
+            <LinearLayout
+                android:id="@+id/groupTranslation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
-                    <TextView style="@style/SectionHeader" android:text="@string/llm_api_settings" />
+                <!-- ===== LLM API ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:layout_marginTop="18dp"
+                    android:text="@string/llm_api_settings" />
 
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
+
+                    <!-- Provider: four mutually exclusive options, so a segmented control
+                         rather than a picker row -->
+                    <com.example.ocr_translation.ui.SegmentedControl
+                        android:id="@+id/segmentProvider"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="10dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- The API key stays editable; only its chrome changed -->
                     <LinearLayout
                         android:id="@+id/layoutApiSettings"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical">
+                        android:gravity="center_vertical"
+                        android:minHeight="44dp"
+                        android:orientation="horizontal"
+                        android:paddingStart="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="4dp">
 
-                        <Spinner
-                            android:id="@+id/spinnerProvider"
-                            android:layout_width="match_parent"
+                        <TextView
+                            style="@style/IosRowLabel"
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp" />
+                            android:text="@string/api_key" />
 
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:layout_width="match_parent"
+                        <androidx.appcompat.widget.AppCompatEditText
+                            android:id="@+id/editApiKey"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:hint="@string/api_key"
-                            android:layout_marginTop="8dp"
-                            app:endIconMode="password_toggle">
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:gravity="end|center_vertical"
+                            android:hint="@string/api_key_unset"
+                            android:importantForAutofill="no"
+                            android:inputType="textPassword"
+                            android:letterSpacing="-0.02"
+                            android:maxLines="1"
+                            android:minHeight="36dp"
+                            android:paddingStart="0dp"
+                            android:paddingTop="0dp"
+                            android:paddingEnd="0dp"
+                            android:paddingBottom="0dp"
+                            android:textColor="@color/ios_label"
+                            android:textColorHint="@color/ios_label_tertiary"
+                            android:textSize="14sp" />
 
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/editApiKey"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:inputType="textPassword" />
-                        </com.google.android.material.textfield.TextInputLayout>
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical"
-                            android:layout_marginTop="8dp">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="@string/model" />
-
-
-                            <Spinner
-                                android:id="@+id/spinnerModel"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:layout_marginStart="8dp"
-                                android:minHeight="48dp" />
-                        </LinearLayout>
+                        <!-- Keeps the reveal affordance the old TextInputLayout's
+                             endIconMode="password_toggle" provided -->
+                        <ImageView
+                            android:id="@+id/btnToggleApiKey"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_marginStart="10dp"
+                            android:contentDescription="@string/api_key_reveal"
+                            android:src="@drawable/ic_visibility"
+                            app:tint="@color/ios_label_tertiary" />
                     </LinearLayout>
 
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/rowModel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/model" />
+
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchUseLocalModel"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/use_local_model"
-                        android:layout_marginTop="8dp" />
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/use_local_model" />
 
-                    <com.google.android.material.textfield.TextInputLayout
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderMaxTokens"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="@string/system_prompt_label"
-                        android:layout_marginTop="8dp">
+                        app:ssFrom="256"
+                        app:ssStep="256"
+                        app:ssTitle="@string/max_output_tokens"
+                        app:ssTo="4096" />
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-                        <com.google.android.material.textfield.TextInputEditText
+                <TextView
+                    style="@style/IosFootnote"
+                    android:text="@string/use_local_model_hint" />
+
+                <!-- ===== Prompts ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/prompts_section" />
+
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingStart="16dp"
+                        android:paddingTop="11dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="12dp">
+
+                        <TextView
+                            style="@style/IosRowSubtitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/system_prompt_label" />
+
+                        <androidx.appcompat.widget.AppCompatEditText
                             android:id="@+id/editSystemPrompt"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:background="@null"
+                            android:gravity="top"
                             android:inputType="textMultiLine"
+                            android:letterSpacing="-0.013"
+                            android:lineSpacingExtra="2sp"
                             android:minLines="2"
-                            android:gravity="top" />
-                    </com.google.android.material.textfield.TextInputLayout>
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
+                            android:textColor="@color/ios_label"
+                            android:textSize="15sp" />
+                    </LinearLayout>
 
-                    <com.google.android.material.textfield.TextInputLayout
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:hint="@string/user_prompt_label"
-                        android:layout_marginTop="8dp">
+                        android:orientation="vertical"
+                        android:paddingStart="16dp"
+                        android:paddingTop="11dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="12dp">
 
-                        <com.google.android.material.textfield.TextInputEditText
+                        <TextView
+                            style="@style/IosRowSubtitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/user_prompt_label" />
+
+                        <androidx.appcompat.widget.AppCompatEditText
                             android:id="@+id/editUserPrompt"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:background="@null"
+                            android:gravity="top"
                             android:inputType="textMultiLine"
+                            android:letterSpacing="-0.013"
+                            android:lineSpacingExtra="2sp"
                             android:minLines="3"
-                            android:gravity="top" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="@string/max_output_tokens" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderMaxTokens"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:valueFrom="256"
-                            android:valueTo="4096"
-                            android:stepSize="256" />
-
-                        <TextView
-                            android:id="@+id/textMaxTokensValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="1024"
-                            android:minWidth="40dp" />
+                            android:paddingStart="0dp"
+                            android:paddingEnd="0dp"
+                            android:textColor="@color/ios_label"
+                            android:textSize="15sp" />
                     </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-            <!-- Scan -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                <!-- ===== Scan ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/capture_settings" />
 
-                    <TextView style="@style/SectionHeader" android:text="@string/capture_settings" />
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
 
-                    <TextView
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderCaptureInterval"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/capture_interval" />
+                        app:ssFrom="0.2"
+                        app:ssStep="0.1"
+                        app:ssTitle="@string/capture_interval"
+                        app:ssTo="1.5" />
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderCaptureInterval"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:valueFrom="0.2"
-                            android:valueTo="1.5"
-                            android:stepSize="0.1" />
-
-                        <TextView
-                            android:id="@+id/textCaptureIntervalValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="1.0s"
-                            android:minWidth="40dp" />
-                    </LinearLayout>
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchAutoCapture"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/auto_capture"
-                        android:layout_marginTop="8dp" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/auto_capture" />
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-            <!-- Enhanced OCR -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                <!-- ===== Enhanced OCR ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/enhanced_ocr_settings" />
 
-                    <TextView style="@style/SectionHeader" android:text="@string/enhanced_ocr_settings" />
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
 
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchUseAccessibility"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/use_accessibility" />
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/use_accessibility" />
 
-                    <TextView
-                        android:id="@+id/textAccessibilityHint"
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/btnEnableAccessibility"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/use_accessibility_hint"
-                        android:textSize="12sp"
-                        android:textColor="@color/on_surface_muted"
-                        android:layout_marginTop="2dp" />
+                        app:srCenterTitle="false"
+                        app:srRole="accent"
+                        app:srTitle="@string/enable_accessibility_service" />
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-                    <Button
-                        android:id="@+id/btnEnableAccessibility"
-                        style="?attr/borderlessButtonStyle"
+                <TextView
+                    android:id="@+id/textAccessibilityHint"
+                    style="@style/IosFootnote"
+                    android:text="@string/use_accessibility_hint" />
+
+                <!-- ===== Cache & history (two cards merged, per 2b) ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/cache_settings" />
+
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
+
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderMaxCache"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:ssFrom="10"
+                        app:ssStep="10"
+                        app:ssTitle="@string/max_cache_entries"
+                        app:ssTo="500" />
+
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderCacheTtl"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:ssFrom="1"
+                        app:ssStep="1"
+                        app:ssTitle="@string/cache_ttl"
+                        app:ssTo="72" />
+
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderHistoryDays"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:ssFrom="1"
+                        app:ssStep="1"
+                        app:ssTitle="@string/keep_history_days"
+                        app:ssTo="30" />
+                </com.example.ocr_translation.ui.SettingsGroup>
+            </LinearLayout>
+
+            <!-- ================================================================ -->
+            <!-- ============ OVERLAY GROUP ============ -->
+            <!-- ================================================================ -->
+            <LinearLayout
+                android:id="@+id/groupOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- ===== Live preview: the one thing the old screen made you guess ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:layout_marginTop="18dp"
+                    android:text="@string/preview_section" />
+
+                <LinearLayout
+                    android:id="@+id/previewCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="@drawable/bg_overlay_preview"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/textPreviewSource"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/preview_source_sample"
+                        android:textColor="#8CFFFFFF"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/textPreviewTarget"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/enable_accessibility_service"
-                        android:layout_marginTop="2dp"
-                        android:paddingStart="0dp"
-                        android:paddingEnd="0dp" />
+                        android:layout_marginTop="10dp"
+                        android:paddingStart="10dp"
+                        android:paddingTop="5dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="5dp"
+                        android:text="@string/preview_target_sample"
+                        android:textSize="14sp" />
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
 
-            <!-- Cache -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                <!-- ===== Result text ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/result_text_section" />
 
-                    <TextView style="@style/SectionHeader" android:text="@string/cache_settings" />
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
 
-                    <TextView
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderTextSize"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/max_cache_entries" />
+                        app:ssFrom="0.5"
+                        app:ssStep="0.1"
+                        app:ssTitle="@string/text_size"
+                        app:ssTo="2.0" />
 
-                    <LinearLayout
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderOverlayOpacity"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
+                        app:ssFrom="0.0"
+                        app:ssStep="0.1"
+                        app:ssTitle="@string/overlay_opacity"
+                        app:ssTo="1.0" />
 
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderMaxCache"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:valueFrom="10"
-                            android:valueTo="500"
-                            android:stepSize="10" />
-
-                        <TextView
-                            android:id="@+id/textMaxCacheValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="100"
-                            android:minWidth="40dp" />
-                    </LinearLayout>
-
-                    <TextView
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/rowFontColor"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/cache_ttl"
-                        android:layout_marginTop="8dp" />
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/font_color" />
 
-                    <LinearLayout
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/rowBgColor"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/background_color" />
 
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderCacheTtl"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:valueFrom="1"
-                            android:valueTo="72"
-                            android:stepSize="1" />
-
-                        <TextView
-                            android:id="@+id/textCacheTtlValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="24h"
-                            android:minWidth="40dp" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- History -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <TextView style="@style/SectionHeader" android:text="@string/history_settings" />
-
-                    <TextView
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/rowFont"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/keep_history_days" />
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/font_style" />
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
+                <!-- ===== Behaviour ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/behaviour_section" />
 
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderHistoryDays"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:valueFrom="1"
-                            android:valueTo="30"
-                            android:stepSize="1" />
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
 
-                        <TextView
-                            android:id="@+id/textHistoryDaysValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="7d"
-                            android:minWidth="40dp" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-        </LinearLayout>
-
-        <!-- ============ OVERLAY GROUP ============ -->
-        <LinearLayout
-            android:id="@+id/groupOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <!-- Result display -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <TextView style="@style/SectionHeader" android:text="@string/display_settings" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/text_size" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderTextSize"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:valueFrom="0.5"
-                            android:valueTo="2.0"
-                            android:stepSize="0.1" />
-
-                        <TextView
-                            android:id="@+id/textTextSizeValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="1.0x"
-                            android:minWidth="40dp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/overlay_opacity"
-                        android:layout_marginTop="8dp" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderOverlayOpacity"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:valueFrom="0.0"
-                            android:valueTo="1.0"
-                            android:stepSize="0.1" />
-
-                        <TextView
-                            android:id="@+id/textOverlayOpacityValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:text="80%"
-                            android:minWidth="40dp" />
-                    </LinearLayout>
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/switchGifEnabled"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="@string/gif_enabled" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/gif_opacity"
-                        android:layout_marginTop="8dp" />
-
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/GifOpacity"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:valueFrom="0.0"
-                        android:valueTo="1.0"
-                        android:stepSize="0.1" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/gif_size"
-                        android:layout_marginTop="8dp" />
-
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/GifSize"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:valueFrom="24"
-                        android:valueTo="120"
-                        android:stepSize="4" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="12dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/font_color" />
-
-                        <Spinner
-                            android:id="@+id/spinnerFontColor"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="8dp"
-                            android:minHeight="48dp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/background_color" />
-
-                        <Spinner
-                            android:id="@+id/spinnerBgColor"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="8dp"
-                            android:minHeight="48dp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/font_style" />
-
-                        <Spinner
-                            android:id="@+id/spinnerFont"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="8dp"
-                            android:minHeight="48dp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/fold_favorite" />
-
-                        <Spinner
-                            android:id="@+id/spinnerFoldFavorite"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="8dp"
-                            android:minHeight="48dp" />
-                    </LinearLayout>
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchInPlaceMode"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/in_place_mode"
-                        android:layout_marginTop="12dp" />
+                        app:srAccessory="toggle"
+                        app:srSubtitle="@string/in_place_mode_hint"
+                        app:srTitle="@string/in_place_mode" />
 
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchMergeOverlap"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/merge_overlap_boxes"
-                        android:layout_marginTop="8dp" />
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/merge_overlap_boxes" />
 
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchAlternativeStyle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/use_alternative_style"
-                        android:layout_marginTop="8dp" />
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/use_alternative_style" />
 
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchShowAreaBorder"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/show_area_border"
-                        android:layout_marginTop="8dp" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/show_area_border" />
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-            <!-- ===== Control panel styling ===== -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                <!-- ===== Loading animation ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/loading_animation_section" />
 
-                    <TextView style="@style/SectionHeader"
-                        android:text="@string/control_panel_section" />
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
+
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/switchGifEnabled"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/gif_enabled" />
+
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/GifOpacity"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:ssFrom="0.0"
+                        app:ssStep="0.1"
+                        app:ssTitle="@string/gif_opacity"
+                        app:ssTo="1.0" />
+
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/GifSize"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:ssFrom="24"
+                        app:ssStep="4"
+                        app:ssTitle="@string/gif_size"
+                        app:ssTo="120" />
+                </com.example.ocr_translation.ui.SettingsGroup>
+
+                <!-- ===== Control panel ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/control_panel_section" />
+
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
                         android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
+                        android:minHeight="44dp"
+                        android:orientation="horizontal"
+                        android:paddingStart="16dp"
+                        android:paddingTop="6dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="6dp">
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            style="@style/IosRowLabel"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
+                            android:layout_weight="1"
                             android:text="@string/control_panel_orientation" />
 
-                        <Spinner
-                            android:id="@+id/spinnerControlPanelOrientation"
-                            android:layout_width="0dp"
+                        <com.example.ocr_translation.ui.SegmentedControl
+                            android:id="@+id/segmentControlPanelOrientation"
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="8dp"
-                            android:minHeight="48dp" />
+                            android:layout_marginStart="12dp"
+                            app:scEntries="@array/control_panel_orientation_options"
+                            app:scFill="false" />
                     </LinearLayout>
 
-                    <LinearLayout
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/rowControlPanelBgColor"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/control_panel_background_color" />
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/control_panel_background_color" />
-
-                        <Spinner
-                            android:id="@+id/spinnerControlPanelBgColor"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="8dp"
-                            android:minHeight="48dp" />
-                    </LinearLayout>
-
-                    <LinearLayout
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderControlPanelOpacity"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="8dp">
+                        app:ssFrom="0.1"
+                        app:ssStep="0.05"
+                        app:ssTitle="@string/control_panel_opacity"
+                        app:ssTo="1.0" />
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/control_panel_opacity" />
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/rowFoldFavorite"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/fold_favorite" />
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-                        <com.google.android.material.slider.Slider
-                            android:id="@+id/sliderControlPanelOpacity"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:layout_marginStart="8dp"
-                            android:valueFrom="0.1"
-                            android:valueTo="1.0"
-                            android:stepSize="0.05" />
+                <!-- ===== Save translations to file ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/save_to_file_section" />
 
-                        <TextView
-                            android:id="@+id/textControlPanelOpacityValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:minWidth="48dp"
-                            android:gravity="end" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
 
-            <!-- ===== Save translations to text file ===== -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical">
-
-                    <TextView style="@style/SectionHeader"
-                        android:text="@string/save_to_file_section" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchSaveToFile"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/save_to_file_enabled"
-                        android:layout_marginTop="4dp" />
+                        app:srAccessory="toggle"
+                        app:srTitle="@string/save_to_file_enabled" />
 
-                    <TextView
-                        android:id="@+id/textSaveFolderCurrent"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/save_folder_none"
-                        android:textSize="12sp"
-                        android:layout_marginTop="6dp" />
-
-                    <com.google.android.material.button.MaterialButton
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/btnChooseSaveFolder"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/save_folder_choose"
-                        android:layout_marginTop="6dp"
-                        app:cornerRadius="12dp"
-                        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-
-                    <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/save_to_file_hint"
-                        android:textSize="12sp"
-                        android:layout_marginTop="6dp" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/save_folder_choose" />
+                </com.example.ocr_translation.ui.SettingsGroup>
 
-            <!-- ===== Custom font ===== -->
-            <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
-                <LinearLayout
+                <TextView
+                    style="@style/IosFootnote"
+                    android:text="@string/save_to_file_hint" />
+
+                <!-- ===== Custom font ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/custom_font_section" />
+
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
+
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/btnLoadCustomFont"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srAccessory="chevron"
+                        app:srTitle="@string/custom_font_load" />
+
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/btnClearCustomFont"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srRole="destructive"
+                        app:srTitle="@string/custom_font_clear" />
+                </com.example.ocr_translation.ui.SettingsGroup>
+            </LinearLayout>
+
+            <!-- ===== Reset, in destructive red at the bottom ===== -->
+            <com.example.ocr_translation.ui.SettingsGroup
+                style="@style/IosGroup"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="26dp"
+                android:layout_marginEnd="16dp">
+
+                <com.example.ocr_translation.ui.SettingsRow
+                    android:id="@+id/btnResetSettings"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    app:srRole="destructive"
+                    app:srTitle="@string/reset_to_defaults" />
+            </com.example.ocr_translation.ui.SettingsGroup>
 
-                    <TextView style="@style/SectionHeader"
-                        android:text="@string/custom_font_section" />
-
-                    <TextView
-                        android:id="@+id/textCustomFontCurrent"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/custom_font_none"
-                        android:textSize="12sp"
-                        android:layout_marginTop="4dp" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginTop="6dp">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnLoadCustomFont"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/custom_font_load"
-                            android:layout_marginEnd="6dp"
-                            app:cornerRadius="12dp"
-                            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnClearCustomFont"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/custom_font_clear"
-                            android:layout_marginStart="6dp"
-                            app:cornerRadius="12dp"
-                            style="@style/Widget.MaterialComponents.Button.TextButton" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
-
-        <!-- Action buttons -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="4dp"
-            android:layout_marginBottom="8dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnResetSettings"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/reset"
-                android:layout_marginEnd="6dp"
-                app:cornerRadius="12dp"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSaveSettings"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/save"
-                android:layout_marginStart="6dp"
-                app:cornerRadius="12dp" />
-        </LinearLayout>
-
-    </LinearLayout>
-</androidx.core.widget.NestedScrollView>
+    </androidx.core.widget.NestedScrollView>
+</LinearLayout>

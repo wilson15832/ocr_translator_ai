@@ -30,6 +30,7 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_USE_LOCAL_MODEL = "use_local_model"
         private const val KEY_CAPTURE_INTERVAL = "capture_interval"
         private const val KEY_AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
+        private const val KEY_ACCENT_INDEX = "accent_index"
         private const val KEY_TEXT_SIZE_MULTIPLIER = "text_size_multiplier"
         private const val KEY_OVERLAY_OPACITY = "overlay_opacity"
         private const val KEY_USE_ALTERNATIVE_STYLE = "use_alternative_style"
@@ -119,6 +120,15 @@ class PreferencesManager private constructor(context: Context) {
     var autoCaptureEnabled: Boolean
         get() = prefs.getBoolean(KEY_AUTO_CAPTURE_ENABLED, false)
         set(value) = prefs.edit { putBoolean(KEY_AUTO_CAPTURE_ENABLED, value) }
+
+    /**
+     * Index into [com.example.ocr_translation.ui.AppTheme.accents] — the app's accent colour,
+     * picked from the swatch row on the main screen. Not touched by resetToDefaults(): it's a
+     * look-and-feel choice, not a translation setting.
+     */
+    var accentIndex: Int
+        get() = prefs.getInt(KEY_ACCENT_INDEX, 0)
+        set(value) = prefs.edit { putInt(KEY_ACCENT_INDEX, value) }
 
     var textSizeMultiplier: Float
         get() = prefs.getFloat(KEY_TEXT_SIZE_MULTIPLIER, 1.0f)

@@ -1,229 +1,349 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Home screen, design 8a ("Editorial — the language pair is the screen", accent-tinted).
+
+  No header band and no cards: the app name lives in the launcher, so the screen opens on the
+  only state worth confirming — Japanese becomes English, at 56sp, readable at arm's length.
+  Start sits at the bottom as the largest object, with a flex spacer above it, which is what
+  removes the empty middle the previous layout had.
+
+  Two colour rules from the design doc, and they are not interchangeable:
+    - Anything drawn directly on the paper (eyebrow, target language, row glyphs) uses
+      ?attr/colorPrimaryVariant. The raw accent fails on paper — accent_green on #FBFAF7 is
+      about 1.9:1.
+    - The raw ?attr/colorPrimary is reserved for filled surfaces (the swap circle, the accent
+      dot), where white or #1A1A1A sits on top of it.
+    - Chevrons stay grey. Tinting a 15dp hairline glyph only makes it harder to see.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/home_paper"
     android:fillViewport="true"
+    android:fitsSystemWindows="true"
     tools:context=".MainActivity">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center_horizontal"
-        android:padding="24dp">
+        android:orientation="vertical">
 
-        <ImageView
-            android:id="@+id/imageAppLogo"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_marginTop="16dp"
-            android:src="@drawable/ic_translate_app"
-            android:contentDescription="@string/app_logo" />
-
-        <TextView
-            android:id="@+id/textAppTitle"
+        <!-- Theme picker, collapsed: accent dot + chevron, top right -->
+        <LinearLayout
+            android:id="@+id/btnAccentToggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/app_name"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:textColor="?attr/colorOnBackground" />
+            android:layout_gravity="end"
+            android:layout_marginTop="8dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/accent_color"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="44dp"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingEnd="20dp">
 
+            <View
+                android:id="@+id/accentDot"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:background="@drawable/bg_accent_dot" />
+
+            <ImageView
+                android:id="@+id/accentChevron"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="7dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
+        </LinearLayout>
+
+        <!-- Expanded state: the swatch bar, filled in by MainActivity -->
+        <LinearLayout
+            android:id="@+id/accentSwatches"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:layout_marginEnd="20dp"
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <!-- Eyebrow -->
         <TextView
-            android:id="@+id/textAppDescription"
+            android:id="@+id/textEyebrow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="@string/app_description"
-            android:textAlignment="center"
-            android:textSize="13sp"
-            android:textColor="@color/on_surface_muted" />
+            android:layout_marginTop="22dp"
+            android:letterSpacing="0.133"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:text="@string/home_eyebrow"
+            android:textColor="?attr/colorPrimaryVariant"
+            android:textSize="12sp" />
 
-        <!-- Languages -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardLanguageSettings"
-            style="@style/SettingsCard"
-            android:layout_marginTop="28dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    style="@style/SectionHeader"
-                    android:text="@string/language_settings" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:layout_width="48dp"
-                        android:layout_height="wrap_content"
-                        android:text="@string/source_language" />
-
-                    <Spinner
-                        android:id="@+id/spinnerSourceLanguage"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="8dp"
-                        android:minHeight="48dp" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="4dp">
-
-                    <TextView
-                        android:layout_width="48dp"
-                        android:layout_height="wrap_content"
-                        android:text="@string/target_language" />
-
-                    <Spinner
-                        android:id="@+id/spinnerTargetLanguage"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="8dp"
-                        android:minHeight="48dp" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnStartTranslation"
+        <!-- The language pair: the point of the screen -->
+        <TextView
+            android:id="@+id/textSourceLanguage"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="4dp"
-            android:text="@string/start_translation"
-            android:textSize="16sp"
-            app:icon="@drawable/ic_start"
-            app:iconGravity="textStart"
-            app:cornerRadius="14dp" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:letterSpacing="-0.043"
+            android:maxLines="1"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:textColor="@color/home_text"
+            android:textStyle="bold"
+            android:textSize="56sp"
+            app:autoSizeMaxTextSize="56sp"
+            app:autoSizeMinTextSize="26sp"
+            app:autoSizeTextType="uniform"
+            tools:text="Japanese" />
 
-        <!-- Settings entry points -->
-        <com.google.android.material.card.MaterialCardView
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp">
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1"
+                android:background="@color/home_rule" />
+
+            <FrameLayout
+                android:id="@+id/btnSwapLanguages"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="14dp"
+                android:layout_marginEnd="14dp"
+                android:background="@drawable/bg_accent_dot"
+                android:clickable="true"
+                android:contentDescription="@string/swap_languages"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/iconSwap"
+                    android:layout_width="21dp"
+                    android:layout_height="21dp"
+                    android:layout_gravity="center"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_swap_updown"
+                    app:tint="?attr/colorOnPrimary" />
+            </FrameLayout>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1"
+                android:background="@color/home_rule" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/textTargetLanguage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:letterSpacing="-0.043"
+            android:maxLines="1"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
+            android:textColor="?attr/colorPrimaryVariant"
+            android:textStyle="bold"
+            android:textSize="56sp"
+            app:autoSizeMaxTextSize="56sp"
+            app:autoSizeMinTextSize="26sp"
+            app:autoSizeTextType="uniform"
+            tools:text="English" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginTop="38dp"
+            android:layout_marginEnd="26dp"
+            android:background="@color/home_hairline" />
+
+        <!--
+          Settings rows. Each carries its current value on the right at a visibly smaller size
+          than the label (16sp label / 14sp value), so the screen doubles as a status readout.
+        -->
+        <LinearLayout
             android:id="@+id/cardTranslationSettings"
-            style="@style/SettingsCard"
-            android:layout_marginTop="20dp"
+            android:layout_width="match_parent"
+            android:layout_height="62dp"
+            android:background="?attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
-            app:rippleColor="?attr/colorPrimary">
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp">
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_translate"
+                app:tint="?attr/colorPrimaryVariant" />
+
+            <TextView
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:layout_marginStart="13dp"
+                android:layout_weight="1"
+                android:text="@string/translation_settings"
+                android:textColor="@color/home_text"
+                android:textSize="16sp" />
 
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_translate"
-                    app:tint="?attr/colorPrimary"
-                    android:contentDescription="@string/translation_settings" />
+            <TextView
+                android:id="@+id/textTranslationValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:maxLines="1"
+                android:textColor="@color/home_value"
+                android:textSize="14sp"
+                tools:text="Gemini" />
 
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp">
+            <ImageView
+                android:layout_width="15dp"
+                android:layout_height="15dp"
+                android:layout_marginStart="6dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
+        </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/translation_settings"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface" />
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginEnd="26dp"
+            android:background="@color/home_hairline" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/settings_translation_desc"
-                        android:textSize="12sp"
-                        android:textColor="@color/on_surface_muted" />
-                </LinearLayout>
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_chevron_right"
-                    android:contentDescription="@null" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.card.MaterialCardView
+        <LinearLayout
             android:id="@+id/cardOverlaySettings"
-            style="@style/SettingsCard"
+            android:layout_width="match_parent"
+            android:layout_height="62dp"
+            android:background="?attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
-            app:rippleColor="?attr/colorPrimary">
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp">
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_settings"
+                app:tint="?attr/colorPrimaryVariant" />
+
+            <TextView
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:layout_marginStart="13dp"
+                android:layout_weight="1"
+                android:text="@string/display_settings"
+                android:textColor="@color/home_text"
+                android:textSize="16sp" />
 
-                <ImageView
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:src="@drawable/ic_settings"
-                    app:tint="?attr/colorPrimary"
-                    android:contentDescription="@string/display_settings" />
+            <TextView
+                android:id="@+id/textOverlayValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:maxLines="1"
+                android:textColor="@color/home_value"
+                android:textSize="14sp"
+                tools:text="In place" />
 
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:layout_marginStart="16dp">
+            <ImageView
+                android:layout_width="15dp"
+                android:layout_height="15dp"
+                android:layout_marginStart="6dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
+        </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/display_settings"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface" />
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginEnd="26dp"
+            android:background="@color/home_hairline" />
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/settings_overlay_desc"
-                        android:textSize="12sp"
-                        android:textColor="@color/on_surface_muted" />
-                </LinearLayout>
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:src="@drawable/ic_chevron_right"
-                    android:contentDescription="@null" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+        <!-- Everything left over, so Start lands on the bottom edge on any screen height -->
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:minHeight="32dp" />
 
         <TextView
             android:id="@+id/textPermissionsInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:lineSpacingExtra="3sp"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp"
             android:text="@string/permissions_info"
-            android:textSize="12sp"
-            android:textAlignment="center"
-            android:textColor="@color/on_surface_muted" />
+            android:textColor="@color/home_footnote"
+            android:textSize="12.5sp" />
+
+        <LinearLayout
+            android:id="@+id/btnStartTranslation"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginEnd="26dp"
+            android:layout_marginBottom="30dp"
+            android:background="@drawable/bg_action_button"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/iconStart"
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_start"
+                app:tint="?attr/colorOnPrimary" />
+
+            <TextView
+                android:id="@+id/textStart"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:letterSpacing="-0.012"
+                android:text="@string/start"
+                android:textColor="?attr/colorOnPrimary"
+                android:textStyle="bold"
+                android:textSize="17sp" />
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>

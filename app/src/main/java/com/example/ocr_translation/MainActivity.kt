@@ -9,15 +9,22 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.transition.AutoTransition
+import android.transition.TransitionManager
+import android.view.Gravity
 import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.accessibilityservice.AccessibilityServiceInfo
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.example.ocr_translation.databinding.ActivityMainBinding
+import com.example.ocr_translation.ui.AppTheme
+import com.example.ocr_translation.ui.OptionPicker
 
 
 class MainActivity : AppCompatActivity() {
@@ -28,12 +35,20 @@ class MainActivity : AppCompatActivity() {
 
     private val PERMISSION_CODE = 100
 
+    private companion object {
+        /** language_codes[0]; the only source value that has no valid target counterpart. */
+        const val AUTO_LANGUAGE_CODE = "auto"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before inflation: ?attr/colorPrimary is resolved eagerly by the inflater.
+        AppTheme.applyTo(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setupLanguageSpinners()
+        setupAccentPicker()
+        setupLanguagePair()
 
         binding.btnStartTranslation.setOnClickListener {
             Log.d("MainActivity", "btnStartTranslation clicked!") // <-- Add Log
@@ -51,65 +66,151 @@ class MainActivity : AppCompatActivity() {
                 .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_OVERLAY))
         }
 
-        binding.spinnerSourceLanguage.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val languageCodes = resources.getStringArray(R.array.language_codes)
-                viewModel.updateSourceLanguage(languageCodes[position])
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-
-        binding.spinnerTargetLanguage.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val languageCodes = resources.getStringArray(R.array.language_codes)
-                viewModel.updateTargetLanguage(languageCodes[position])
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
-
         // Observe translation active state
         viewModel.translationActive.observe(this) { active ->
             updateTranslationUI(active)
         }
     }
 
-    private fun setupLanguageSpinners() {
-        val languages = resources.getStringArray(R.array.languages)
-        val languageCodes = resources.getStringArray(R.array.language_codes)
+    /**
+     * Theme picker. Collapsed it is the accent dot top-right; tapping expands a bar of swatches
+     * beneath it (design 6b/8a put a preference of this weight there rather than in a headline
+     * band). Picking one persists it and recreates the activity — the accent is a theme overlay
+     * and views resolve `?attr/colorPrimary` at inflation time, so re-inflating is the repaint.
+     */
+    private fun setupAccentPicker() {
+        val container = binding.accentSwatches
+        container.removeAllViews()
+        val selected = AppTheme.selectedIndex(this)
+        val size = dp(26)
+        val gap = dp(9)
 
+        AppTheme.accents.forEachIndexed { index, accent ->
+            val swatchColor = ContextCompat.getColor(this, accent.colorRes)
+            val swatch = FrameLayout(this).apply {
+                background =
+                    ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_accent_swatch)
+                backgroundTintList = android.content.res.ColorStateList.valueOf(swatchColor)
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    if (index > 0) marginStart = gap
+                }
+                contentDescription = getString(R.string.accent_color_selected, index + 1)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    if (index == selected) return@setOnClickListener
+                    AppTheme.select(this@MainActivity, index)
+                    recreate()
+                }
+            }
+            if (index == selected) {
+                swatch.addView(
+                    ImageView(this).apply {
+                        setImageResource(R.drawable.ic_ios_check)
+                        // A white check is invisible on the lighter accents.
+                        imageTintList = android.content.res.ColorStateList.valueOf(
+                            AppTheme.contrastOn(swatchColor)
+                        )
+                        layoutParams = FrameLayout.LayoutParams(dp(14), dp(10)).apply {
+                            gravity = Gravity.CENTER
+                        }
+                    }
+                )
+            }
+            container.addView(swatch)
+        }
 
-        val sourceAdapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            languages
-        )
-        binding.spinnerSourceLanguage.adapter = sourceAdapter
-
-        val targetAdapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_spinner_dropdown_item,
-            languages
-        )
-        binding.spinnerTargetLanguage.adapter = targetAdapter
-
-        // Find position by code instead of name
-        val sourceIndex = languageCodes.indexOf(viewModel.selectedSourceLanguage).takeIf { it >= 0 } ?: 0
-        val targetIndex = languageCodes.indexOf(viewModel.selectedTargetLanguage).takeIf { it >= 0 } ?: 0
-
-        binding.spinnerSourceLanguage.setSelection(sourceIndex)
-        binding.spinnerTargetLanguage.setSelection(targetIndex)
+        binding.btnAccentToggle.setOnClickListener {
+            val expanded = container.visibility == View.VISIBLE
+            // Animates the row's appearance without hand-written animators.
+            TransitionManager.beginDelayedTransition(
+                binding.root as android.view.ViewGroup, AutoTransition().setDuration(160)
+            )
+            container.visibility = if (expanded) View.GONE else View.VISIBLE
+            binding.accentChevron.animate().rotation(if (expanded) 0f else 90f)
+                .setDuration(160).start()
+        }
     }
 
-    private fun updateTranslationUI(active: Boolean) {
-        if (active) {
-            binding.btnStartTranslation.text = getString(R.string.stop_translation)
-            binding.btnStartTranslation.setIconResource(R.drawable.ic_stop)
-        } else {
-            binding.btnStartTranslation.text = getString(R.string.start_translation)
-            binding.btnStartTranslation.setIconResource(R.drawable.ic_start)
+    /**
+     * The language pair is the screen: two 56sp words the user taps to open a bottom-sheet
+     * picker, with the accent circle between them swapping the two.
+     *
+     * "Auto-detect" is offered for the source only — it was never a meaningful target, and the
+     * old target Spinner listed it purely because both shared one adapter.
+     */
+    private fun setupLanguagePair() {
+        val languages = resources.getStringArray(R.array.languages).toList()
+        val codes = resources.getStringArray(R.array.language_codes).toList()
+        val targetLanguages = languages.drop(1)
+        val targetCodes = codes.drop(1)
+
+        fun sourceIndex() = codes.indexOf(viewModel.selectedSourceLanguage).takeIf { it >= 0 } ?: 0
+        fun targetIndex() =
+            targetCodes.indexOf(viewModel.selectedTargetLanguage).takeIf { it >= 0 } ?: 0
+
+        fun refresh() {
+            binding.textSourceLanguage.text = languages[sourceIndex()]
+            binding.textTargetLanguage.text = targetLanguages[targetIndex()]
+            // Nothing sensible to swap into the target while the source is Auto-detect.
+            val canSwap = viewModel.selectedSourceLanguage != AUTO_LANGUAGE_CODE
+            binding.btnSwapLanguages.isEnabled = canSwap
+            binding.btnSwapLanguages.isClickable = canSwap
+            binding.btnSwapLanguages.alpha = if (canSwap) 1f else 0.3f
         }
+
+        binding.textSourceLanguage.setOnClickListener {
+            OptionPicker.show(
+                this, getString(R.string.source_language), languages, sourceIndex()
+            ) { index ->
+                viewModel.updateSourceLanguage(codes[index])
+                refresh()
+            }
+        }
+
+        binding.textTargetLanguage.setOnClickListener {
+            OptionPicker.show(
+                this, getString(R.string.target_language), targetLanguages, targetIndex()
+            ) { index ->
+                viewModel.updateTargetLanguage(targetCodes[index])
+                refresh()
+            }
+        }
+
+        binding.btnSwapLanguages.setOnClickListener {
+            val oldSource = viewModel.selectedSourceLanguage
+            if (oldSource == AUTO_LANGUAGE_CODE) return@setOnClickListener
+            viewModel.updateSourceLanguage(viewModel.selectedTargetLanguage)
+            viewModel.updateTargetLanguage(oldSource)
+            refresh()
+        }
+
+        // Last, so it wins over the isClickable that setOnClickListener forces on.
+        refresh()
+    }
+
+    /**
+     * Fills in the right-hand value on each settings row, so the home screen reports the current
+     * configuration instead of only linking to it. Refreshed in onResume, since both values can
+     * be changed on the screen the row opens.
+     */
+    private fun refreshSettingsRowValues() {
+        val prefs = PreferencesManager.getInstance(this)
+        binding.textTranslationValue.text =
+            LlmProvider.fromModel(prefs.modelName).displayName
+        binding.textOverlayValue.setText(
+            if (prefs.inPlaceMode) R.string.overlay_mode_in_place else R.string.overlay_mode_merged
+        )
+    }
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun updateTranslationUI(active: Boolean) {
+        binding.textStart.setText(if (active) R.string.stop else R.string.start)
+        binding.iconStart.setImageResource(if (active) R.drawable.ic_stop else R.drawable.ic_start)
+        binding.textEyebrow.setText(
+            if (active) R.string.home_eyebrow_active else R.string.home_eyebrow
+        )
     }
 
     private fun checkAndRequestPermissions() {
@@ -294,6 +395,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+
+        // Both row values can be changed on the screen the row opens, so re-read them here.
+        refreshSettingsRowValues()
 
         // Check if services are still running
         if (viewModel.translationActive.value == true) {

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- com.example.ocr_translation.ui.SettingsRow -->
+    <declare-styleable name="SettingsRow">
+        <attr name="srTitle" format="string|reference" />
+        <attr name="srSubtitle" format="string|reference" />
+        <attr name="srValue" format="string|reference" />
+        <!-- 29dp squircle glyph tile at the leading edge (main screen's settings entries) -->
+        <attr name="srIcon" format="reference" />
+        <attr name="srIconBackground" format="color|reference" />
+        <attr name="srAccessory" format="enum">
+            <enum name="none" value="0" />
+            <enum name="chevron" value="1" />
+            <enum name="toggle" value="2" />
+        </attr>
+        <attr name="srRole" format="enum">
+            <enum name="normal" value="0" />
+            <!-- accent = tinted, tappable text (e.g. "Enable accessibility service…") -->
+            <enum name="accent" value="1" />
+            <enum name="destructive" value="2" />
+        </attr>
+        <!-- Accent / destructive rows are centred like an iOS action row -->
+        <attr name="srCenterTitle" format="boolean" />
+    </declare-styleable>
+
+    <!-- com.example.ocr_translation.ui.SettingsSliderRow -->
+    <declare-styleable name="SettingsSliderRow">
+        <attr name="ssTitle" format="string|reference" />
+        <attr name="ssFrom" format="float" />
+        <attr name="ssTo" format="float" />
+        <attr name="ssStep" format="float" />
+    </declare-styleable>
+
+    <!-- com.example.ocr_translation.ui.SegmentedControl -->
+    <declare-styleable name="SegmentedControl">
+        <attr name="scEntries" format="reference" />
+        <!--
+          true (default): segments split the control's width equally — needs a definite width,
+          so pair it with layout_width="match_parent".
+          false: each segment hugs its label, for a compact pill next to a row label.
+        -->
+        <attr name="scFill" format="boolean" />
+    </declare-styleable>
+
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  27dp white knob. The 2dp inset on each side is what leaves the track's rim visible, so the
+  thumb reads as sitting inside the 31dp track rather than covering it.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="2dp"
+    android:insetRight="2dp"
+    android:insetTop="2dp"
+    android:insetBottom="2dp">
+    <shape android:shape="oval">
+        <solid android:color="@color/ios_switch_thumb" />
+        <size android:width="27dp" android:height="27dp" />
+    </shape>
+</inset>

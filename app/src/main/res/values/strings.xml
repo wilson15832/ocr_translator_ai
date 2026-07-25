@@ -8,13 +8,21 @@
     <!-- Main activity -->
     <string name="start_translation">Start Translation</string>
     <string name="stop_translation">Stop Translation</string>
+    <!-- Home screen (design 8a): the button label is short because the eyebrow above already
+         says what the screen does. -->
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="home_eyebrow">TRANSLATING</string>
+    <string name="home_eyebrow_active">TRANSLATION RUNNING</string>
+    <!-- Right-hand value on the Display settings row -->
+    <string name="overlay_mode_in_place">In place</string>
+    <string name="overlay_mode_merged">Merged</string>
     <string name="settings">Settings</string>
-    <string name="settings_translation_desc">Languages, model, prompts, scanning</string>
-    <string name="settings_overlay_desc">Result text size, colors, font, in-place</string>
     <string name="enhanced_ocr_settings">Enhanced OCR</string>
     <string name="language_settings">Language Settings</string>
-    <string name="source_language">From:</string>
-    <string name="target_language">To:</string>
+    <!-- Row labels in a grouped list carry no trailing colon; the value sits on the right. -->
+    <string name="source_language">From</string>
+    <string name="target_language">To</string>
     <string name="permissions_info">This app requires overlay, accessibility and screen capture permissions to function properly.</string>
 
     <!-- Settings activity -->
@@ -24,23 +32,24 @@
     <string name="api_endpoint">API Endpoint URL</string>
     <string name="api_key">API Key</string>
     <string name="max_output_tokens">Max output tokens</string>
-    <string name="model">Model:</string>
-    <string name="use_local_model">Use local model (no API needed)</string>
+    <string name="model">Model</string>
+    <string name="use_local_model">Use local model</string>
+    <string name="use_local_model_hint">No API key is needed with a local model.</string>
     <string name="capture_settings">Scan Settings</string>
     <string name="capture_interval">Scan interval</string>
-    <string name="auto_capture">Auto-capture when screen changes</string>
+    <string name="auto_capture">Auto-capture on change</string>
     <string name="display_settings">Overlay Settings</string>
-    <string name="text_size">Text Size</string>
-    <string name="overlay_opacity">Overlay Opacity</string>
-    <string name="gif_opacity">Gif Opacity</string>
-    <string name="gif_size">Gif size</string>
+    <string name="text_size">Text size</string>
+    <string name="overlay_opacity">Overlay opacity</string>
+    <string name="gif_opacity">Animation opacity</string>
+    <string name="gif_size">Animation size</string>
     <string name="gif_enabled">Loading animation</string>
-    <string name="use_alternative_style">Use speech bubble style</string>
-    <string name="cache_settings">Cache Settings</string>
-    <string name="max_cache_entries">Maximum Cache Entries</string>
-    <string name="cache_ttl">Cache Lifetime</string>
+    <string name="use_alternative_style">Speech bubble style</string>
+    <string name="cache_settings">Cache &amp; history</string>
+    <string name="max_cache_entries">Maximum cache entries</string>
+    <string name="cache_ttl">Cache lifetime</string>
     <string name="history_settings">History Settings</string>
-    <string name="keep_history_days">Keep History For</string>
+    <string name="keep_history_days">Keep history for</string>
     <string name="save">Save</string>
     <string name="reset">Reset</string>
     <string name="settings_saved">Settings saved</string>
@@ -66,8 +75,9 @@
     <string name="fold_favorite">Button shown when folded</string>
     <string name="font_color">Text color</string>
     <string name="background_color">Background color</string>
-    <string name="in_place_mode">In-place translation (cover original text)</string>
-    <string name="use_accessibility">Enhanced OCR via accessibility (apps only)</string>
+    <string name="in_place_mode">In-place translation</string>
+    <string name="in_place_mode_hint">Cover the original text</string>
+    <string name="use_accessibility">Read text via accessibility</string>
     <string name="use_accessibility_hint">Reads text directly from the app for exact results. Does not work for games that draw text on a canvas (e.g. FGO) — those still use screen capture.</string>
     <string name="enable_accessibility_service">Enable accessibility service…</string>
     <string name="font_style">Font</string>
@@ -121,26 +131,45 @@
     <string name="control_panel_expand">Expand</string>
     <string name="control_panel_section">Control panel</string>
     <string name="control_panel_orientation">Orientation</string>
-    <string name="control_panel_background_color">Panel background color</string>
+    <string name="control_panel_background_color">Panel background</string>
     <string name="control_panel_opacity">Panel opacity</string>
 
     <!-- Round 4: save translations to file -->
     <string name="save_to_file_section">Save translations to file</string>
-    <string name="save_to_file_enabled">Save translations to a text file</string>
+    <string name="save_to_file_enabled">Save to a text file</string>
     <string name="save_to_file_hint">Each session creates one .txt file in the chosen folder. Original lines and translations are appended as they appear.</string>
+    <string name="save_folder">Folder</string>
     <string name="save_folder_choose">Choose folder</string>
-    <string name="save_folder_none">No folder selected</string>
+    <string name="save_folder_none">None</string>
     <string name="save_folder_current">Saving to: %1$s</string>
     <string name="save_folder_unset">Folder access lost — please pick again</string>
 
     <!-- Round 4: custom font -->
     <string name="custom_font_section">Custom font (.ttf / .otf)</string>
+    <string name="custom_font">Font file</string>
     <string name="custom_font_load">Load font</string>
     <string name="custom_font_clear">Clear font</string>
     <string name="custom_font_current">Custom font: %1$s</string>
-    <string name="custom_font_none">No custom font loaded</string>
+    <string name="custom_font_none">None loaded</string>
     <string name="custom_font_load_failed">Couldn\'t load that font file</string>
     <string name="custom_font_loaded">Custom font loaded</string>
     <string name="custom_font_cleared">Custom font cleared</string>
+
+    <!-- Round 5: iOS-style grouped-list redesign -->
+    <string name="back">Back</string>
+    <string name="swap_languages">Swap</string>
+    <string name="accent_color">Theme color</string>
+    <string name="accent_color_selected">Theme color %1$d selected</string>
+    <string name="api_key_unset">Not set</string>
+    <string name="api_key_reveal">Show or hide the API key</string>
+    <string name="reset_to_defaults">Reset to defaults</string>
+    <string name="prompts_section">Prompts</string>
+    <string name="result_text_section">Result text</string>
+    <string name="behaviour_section">Behaviour</string>
+    <string name="loading_animation_section">Loading animation</string>
+    <string name="preview_section">Preview</string>
+    <!-- Sample strings for the live preview; deliberately untranslated sample content. -->
+    <string name="preview_source_sample" translatable="false">かつて魔法が世界を満たしていた</string>
+    <string name="preview_target_sample">Magic once filled this world.</string>
 
 </resources>

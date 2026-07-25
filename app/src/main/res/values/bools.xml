@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Status-bar icon colour. The theme itself can't be swapped per-qualifier without
+      duplicating every item, so the one value that differs between light and dark is
+      pulled out into this bool (overridden in values-night).
+    -->
+    <bool name="ios_light_status_bar">true</bool>
+</resources>

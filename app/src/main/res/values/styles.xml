@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base application theme -->
-    <style name="Theme.ScreenTranslator" parent="Theme.MaterialComponents.Light.DarkActionBar">
+    <!--
+      Base application theme. DayNight so the iOS-style grouped lists follow the system
+      light/dark setting; NoActionBar because both screens now draw their own navigation
+      chrome (main screen = large title, settings = Back / title / Save bar).
+    -->
+    <style name="Theme.ScreenTranslator" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- Primary brand color -->
         <item name="colorPrimary">@color/primary</item>
         <item name="colorPrimaryVariant">@color/primary_dark</item>
@@ -12,46 +16,186 @@
         <item name="colorSecondaryVariant">@color/secondary_dark</item>
         <item name="colorOnSecondary">@color/on_secondary</item>
 
-        <!-- Status bar color -->
-        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
+        <!-- Status bar blends into the grouped background instead of being a blue band -->
+        <item name="android:statusBarColor">@color/ios_grouped_bg</item>
+        <item name="android:navigationBarColor">@color/ios_grouped_bg</item>
+        <item name="android:windowLightStatusBar">@bool/ios_light_status_bar</item>
 
         <!-- Other customizations -->
-        <item name="android:windowBackground">@color/background</item>
+        <item name="android:windowBackground">@color/ios_grouped_bg</item>
         <item name="colorSurface">@color/surface</item>
         <item name="colorOnSurface">@color/on_surface</item>
         <item name="colorError">@color/error</item>
         <item name="colorOnError">@color/on_error</item>
+
+        <item name="android:textColorPrimary">@color/ios_label</item>
+        <item name="android:textColorSecondary">@color/ios_label_secondary</item>
+
+        <item name="bottomSheetDialogTheme">@style/Theme.ScreenTranslator.BottomSheet</item>
     </style>
 
-    <!-- No Action Bar variant of the theme -->
-    <style name="Theme.ScreenTranslator.NoActionBar">
-        <item name="windowActionBar">false</item>
-        <item name="windowNoTitle">true</item>
+    <!--
+      Home screen only. Its paper is warmer than the settings screens' grouped grey, so without
+      this the launcher activity flashes #F2F2F7 before the layout paints. windowLightStatusBar
+      is inherited and already correct for paper.
+    -->
+    <style name="Theme.ScreenTranslator.Home">
+        <item name="android:windowBackground">@color/home_paper</item>
+        <item name="android:statusBarColor">@color/home_paper</item>
+        <item name="android:navigationBarColor">@color/home_paper</item>
     </style>
 
-    <!-- Card wrapping a settings section -->
-    <style name="SettingsCard" parent="Widget.MaterialComponents.CardView">
+    <!--
+      Accent overlays applied at runtime by ui/AppTheme.kt. They only move colorPrimary /
+      colorPrimaryVariant; everything tinted by the accent references ?attr/colorPrimary rather
+      than @color/primary, so switching one of these repaints the whole app.
+    -->
+    <style name="ThemeOverlay.ScreenTranslator.Accent.Blue" parent="">
+        <item name="colorPrimary">@color/accent_blue</item>
+        <item name="colorPrimaryVariant">@color/accent_blue_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
+    </style>
+
+    <style name="ThemeOverlay.ScreenTranslator.Accent.Purple" parent="">
+        <item name="colorPrimary">@color/accent_purple</item>
+        <item name="colorPrimaryVariant">@color/accent_purple_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
+    </style>
+
+    <style name="ThemeOverlay.ScreenTranslator.Accent.Green" parent="">
+        <item name="colorPrimary">@color/accent_green</item>
+        <item name="colorPrimaryVariant">@color/accent_green_dark</item>
+        <item name="colorOnPrimary">@color/accent_on_light</item>
+    </style>
+
+    <style name="ThemeOverlay.ScreenTranslator.Accent.Orange" parent="">
+        <item name="colorPrimary">@color/accent_orange</item>
+        <item name="colorPrimaryVariant">@color/accent_orange_dark</item>
+        <item name="colorOnPrimary">@color/accent_on_light</item>
+    </style>
+
+    <style name="ThemeOverlay.ScreenTranslator.Accent.Pink" parent="">
+        <item name="colorPrimary">@color/accent_pink</item>
+        <item name="colorPrimaryVariant">@color/accent_pink_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
+    </style>
+
+    <style name="ThemeOverlay.ScreenTranslator.Accent.Graphite" parent="">
+        <item name="colorPrimary">@color/accent_graphite</item>
+        <item name="colorPrimaryVariant">@color/accent_graphite_dark</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
+    </style>
+
+    <!-- Transparent-background sheet so the picker's own rounded card defines the shape -->
+    <style name="Theme.ScreenTranslator.BottomSheet"
+        parent="Theme.MaterialComponents.DayNight.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/Widget.ScreenTranslator.BottomSheet</item>
+    </style>
+
+    <style name="Widget.ScreenTranslator.BottomSheet"
+        parent="Widget.MaterialComponents.BottomSheet.Modal">
+        <item name="android:background">@android:color/transparent</item>
+    </style>
+
+    <!-- ==================== iOS grouped-list building blocks ==================== -->
+
+    <!-- 13sp uppercase caption sitting OUTSIDE the card, above a group -->
+    <style name="IosGroupHeader">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:layout_marginBottom">12dp</item>
-        <item name="cardCornerRadius">14dp</item>
-        <item name="cardElevation">1dp</item>
-        <item name="contentPadding">16dp</item>
-    </style>
-
-    <!-- Accent header above each settings section -->
-    <style name="SectionHeader">
-        <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">wrap_content</item>
-        <item name="android:textStyle">bold</item>
         <item name="android:textSize">13sp</item>
-        <item name="android:textColor">?attr/colorPrimary</item>
+        <item name="android:textColor">@color/ios_label_secondary</item>
         <item name="android:textAllCaps">true</item>
-        <item name="android:letterSpacing">0.04</item>
-        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingBottom">7dp</item>
+        <item name="android:layout_marginTop">22dp</item>
     </style>
 
-    <!-- Theme for the translation overlay -->
+    <!-- 13sp explanatory caption BELOW a card -->
+    <style name="IosFootnote">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:lineSpacingExtra">3sp</item>
+        <item name="android:textColor">@color/ios_label_secondary</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:layout_marginTop">7dp</item>
+    </style>
+
+    <!-- Rounded white/dark card holding one group of rows -->
+    <style name="IosGroup">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+    </style>
+
+    <!-- 0.5px hairline; SettingsGroup inserts these itself between rows -->
+    <style name="IosHairline">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0.5dp</item>
+        <item name="android:background">@color/ios_separator</item>
+    </style>
+
+    <!-- 17sp row label, iOS body size with its slightly tightened tracking -->
+    <style name="IosRowLabel">
+        <item name="android:textSize">17sp</item>
+        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:textColor">@color/ios_label</item>
+    </style>
+
+    <!--
+      Deliberately a clear step below IosRowLabel's 17sp rather than matching it: the label names
+      the setting, the value only reports its current state.
+    -->
+    <style name="IosRowValue">
+        <item name="android:textSize">14sp</item>
+        <item name="android:letterSpacing">-0.01</item>
+        <item name="android:textColor">@color/ios_label_secondary</item>
+    </style>
+
+    <style name="IosRowSubtitle">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/ios_label_secondary</item>
+    </style>
+
+    <!-- 4dp track + 28dp round thumb, no halo: an iOS slider rather than a Material one -->
+    <style name="IosSlider" parent="Widget.MaterialComponents.Slider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="trackHeight">4dp</item>
+        <item name="thumbRadius">14dp</item>
+        <item name="thumbColor">@color/ios_switch_thumb</item>
+        <item name="thumbElevation">2dp</item>
+        <item name="haloRadius">0dp</item>
+        <item name="trackColorActive">?attr/colorPrimary</item>
+        <item name="trackColorInactive">@color/ios_fill_secondary</item>
+        <item name="labelBehavior">gone</item>
+        <item name="android:paddingStart">0dp</item>
+        <item name="android:paddingEnd">0dp</item>
+    </style>
+
+    <!--
+      51x31 iOS toggle. `track` / `switchMinWidth` / `thumbTextPadding` are SwitchCompat's own
+      (app-namespace) attributes, while the thumb still comes from the platform attribute —
+      hence the mixed prefixes below.
+    -->
+    <style name="IosSwitch" parent="Widget.AppCompat.CompoundButton.Switch">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="track">@drawable/ios_switch_track</item>
+        <item name="android:thumb">@drawable/ios_switch_thumb</item>
+        <item name="android:background">@null</item>
+        <item name="switchMinWidth">51dp</item>
+        <item name="thumbTextPadding">0dp</item>
+        <item name="showText">false</item>
+        <item name="splitTrack">false</item>
+    </style>
+
+    <!-- ==================== legacy (overlay-only) ==================== -->
+
+    <!-- Theme for the translation overlay. Not DayNight: the overlay sits on top of games. -->
     <style name="Theme.ScreenTranslator.Overlay" parent="Theme.MaterialComponents.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
