@@ -7,34 +7,37 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
-import com.example.ocr_translation.ui.AppTheme
 
 /**
- * Area picker, design 3f.
+ * Area picker, in the photo-crop idiom: corner brackets, a thirds grid, and everything outside
+ * dimmed.
  *
- * Everything *outside* the box dims, rather than the box itself being filled with translucent
- * accent. On a bright scene the old translucent-blue-rectangle-on-top read as barely there;
- * inverting it makes the selection unmistakable. Corner handles say the box can be adjusted, and
- * a live size chip confirms what was actually drawn.
+ * Borrowed deliberately, because it is the one selection UI every phone user has already met — in
+ * the camera roll, in every editor — so nothing about it needs explaining. Its parts also happen to
+ * say the right things here: brackets read as grabbable where the previous decorative handles only
+ * looked it, and the absence of a drawn frame leaves the scrim's edge to define the boundary, which
+ * is a cleaner line than a stroke straddling it.
+ *
+ * Monochrome rather than accent-tinted. Over an arbitrary game frame a themed outline competes with
+ * whatever is behind it, and white on a dimmed surround is legible against all of them.
  */
 class AreaSelectionOverlay(context: Context) : View(context) {
 
     private val density = context.resources.displayMetrics.density
 
-    private val accent = AppTheme.colorPrimary(context)
-
-    private val framePaint = Paint().apply {
-        color = accent
+    private val cornerPaint = Paint().apply {
+        color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = 3f * density
+        strokeWidth = 4f * density
+        strokeCap = Paint.Cap.SQUARE
         isAntiAlias = true
     }
 
-    private val handlePaint = Paint().apply {
-        color = Color.WHITE
+    /** Rule-of-thirds guides: present enough to compose against, faint enough to ignore. */
+    private val gridPaint = Paint().apply {
+        color = Color.parseColor("#40FFFFFF")
         style = Paint.Style.STROKE
-        strokeWidth = 5f * density
-        strokeCap = Paint.Cap.ROUND
+        strokeWidth = 1f * density
         isAntiAlias = true
     }
 
@@ -190,11 +193,27 @@ class AreaSelectionOverlay(context: Context) : View(context) {
 
         val area = selection
         drawScrimAround(canvas, area)
-
-        val radius = 18f * density
-        canvas.drawRoundRect(area, radius, radius, framePaint)
-        drawCornerHandles(canvas, area)
+        drawThirds(canvas, area)
+        drawCornerBrackets(canvas, area)
         drawSizeChip(canvas, area)
+    }
+
+    /**
+     * Two lines each way, at the thirds.
+     *
+     * Skipped on a small box: at that size the guides are closer together than the text being
+     * framed and read as noise over it rather than as structure.
+     */
+    private fun drawThirds(canvas: Canvas, area: RectF) {
+        if (area.width() < GRID_MIN_DP * density || area.height() < GRID_MIN_DP * density) return
+        val thirdW = area.width() / 3f
+        val thirdH = area.height() / 3f
+        for (i in 1..2) {
+            val x = area.left + thirdW * i
+            canvas.drawLine(x, area.top, x, area.bottom, gridPaint)
+            val y = area.top + thirdH * i
+            canvas.drawLine(area.left, y, area.right, y, gridPaint)
+        }
     }
 
     /** Four rects around the selection — cheaper and sharper than a clipped full-screen fill. */
@@ -207,21 +226,36 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         canvas.drawRect(area.right, area.top, w, area.bottom, scrimPaint)
     }
 
-    private fun drawCornerHandles(canvas: Canvas, area: RectF) {
-        val arm = 22f * density
-        val inset = 1f * density
-        // Top-left
-        canvas.drawLine(area.left - inset, area.top + arm, area.left - inset, area.top - inset, handlePaint)
-        canvas.drawLine(area.left - inset, area.top - inset, area.left + arm, area.top - inset, handlePaint)
-        // Top-right
-        canvas.drawLine(area.right - arm, area.top - inset, area.right + inset, area.top - inset, handlePaint)
-        canvas.drawLine(area.right + inset, area.top - inset, area.right + inset, area.top + arm, handlePaint)
-        // Bottom-left
-        canvas.drawLine(area.left - inset, area.bottom - arm, area.left - inset, area.bottom + inset, handlePaint)
-        canvas.drawLine(area.left - inset, area.bottom + inset, area.left + arm, area.bottom + inset, handlePaint)
-        // Bottom-right
-        canvas.drawLine(area.right - arm, area.bottom + inset, area.right + inset, area.bottom + inset, handlePaint)
-        canvas.drawLine(area.right + inset, area.bottom + inset, area.right + inset, area.bottom - arm, handlePaint)
+    /**
+     * An L at each corner, square, meeting exactly on the crop edge.
+     *
+     * The arm shortens on a small box so the four brackets can't grow into one another and close
+     * the shape back into the frame this replaced.
+     */
+    private fun drawCornerBrackets(canvas: Canvas, area: RectF) {
+        val arm = minOf(
+            ARM_DP * density,
+            minOf(area.width(), area.height()) / 3f
+        ).coerceAtLeast(1f)
+        // Half the stroke sits either side of the path, so the outer edge of each bracket lands on
+        // the crop edge rather than straddling it.
+        val out = cornerPaint.strokeWidth / 2f
+        val l = area.left - out
+        val t = area.top - out
+        val r = area.right + out
+        val b = area.bottom + out
+
+        canvas.drawLine(l, t, l + arm, t, cornerPaint)
+        canvas.drawLine(l, t, l, t + arm, cornerPaint)
+
+        canvas.drawLine(r - arm, t, r, t, cornerPaint)
+        canvas.drawLine(r, t, r, t + arm, cornerPaint)
+
+        canvas.drawLine(l, b - arm, l, b, cornerPaint)
+        canvas.drawLine(l, b, l + arm, b, cornerPaint)
+
+        canvas.drawLine(r - arm, b, r, b, cornerPaint)
+        canvas.drawLine(r, b - arm, r, b, cornerPaint)
     }
 
     /** Live "330 × 130" readout, above the box or tucked inside it when there's no room. */
@@ -244,6 +278,12 @@ class AreaSelectionOverlay(context: Context) : View(context) {
     }
 
     private companion object {
+        /** Length of each bracket arm on a box with room for it. */
+        const val ARM_DP = 24f
+
+        /** Below this in either direction the thirds grid is left off. */
+        const val GRID_MIN_DP = 96f
+
         /** How near a corner a touch has to land to grab it, rather than move the box. */
         const val HANDLE_TOUCH_DP = 28f
 
