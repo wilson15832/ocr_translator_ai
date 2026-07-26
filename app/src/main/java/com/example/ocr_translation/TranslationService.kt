@@ -41,6 +41,10 @@ class TranslationService private constructor(private val context: Context) {
         var preserveFormatting: Boolean = true,
         var preferSpeed: Boolean = false,    // Speed vs quality tradeoff
         var modelName: String = "gpt-4-turbo", // Default model
+        // Which vendor to send to. Kept separate from modelName because a user-added model code
+        // needn't follow the vendor's naming, and routing on the code's prefix would send it to
+        // whichever endpoint happened to match — or to the fallback.
+        var provider: LlmProvider = LlmProvider.CHATGPT,
         var useLocalModel: Boolean = false,  // Option for on-device models
         var maxCacheSize: Int = 100,         // Max entries in cache
         var systemPrompt: String = "",
@@ -70,6 +74,7 @@ class TranslationService private constructor(private val context: Context) {
         config.preserveFormatting = preferencesManager.preserveFormatting
         config.preferSpeed = preferencesManager.preferSpeed
         config.modelName = preferencesManager.modelName
+        config.provider = preferencesManager.providerFor(preferencesManager.modelName)
         config.useLocalModel = preferencesManager.useLocalModel
         config.maxCacheSize = preferencesManager.maxCacheEntries
         config.systemPrompt = preferencesManager.systemPrompt
@@ -79,23 +84,22 @@ class TranslationService private constructor(private val context: Context) {
 
     private fun createLlmClient(): LlmClient {
         val model = config.modelName
-        return when {
-            model.startsWith("deepseek") ->
+        // Switched on the provider rather than the model's prefix: the URL and payload format are
+        // a property of the vendor, not of the model name, which is exactly why a user can add a
+        // new model without the app needing to know about it.
+        return when (config.provider) {
+            LlmProvider.DEEPSEEK ->
                 OpenAiCompatibleClient(client, gson, apiKey,
                     "https://api.deepseek.com/chat/completions", model, config.maxTokens)
-            model.startsWith("gpt") ->
+            LlmProvider.CHATGPT ->
                 OpenAiCompatibleClient(client, gson, apiKey,
-//                    "https://api.ooapi.cc/v1/chat/completions", model, config.maxTokens)
-            "https://api.openai.com/v1/chat/completions", model, config.maxTokens)
-            model.startsWith("gemini") ->
+                    "https://api.openai.com/v1/chat/completions", model, config.maxTokens)
+            LlmProvider.GEMINI ->
                 GeminiClient(client, gson, apiKey,
                     "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, config.maxTokens)
-            model.startsWith("claude") ->
+            LlmProvider.CLAUDE ->
                 ClaudeClient(client, gson, apiKey,
                     "https://api.anthropic.com/v1/messages", model, config.maxTokens)
-            else ->  // gemini-* and fallback
-                GeminiClient(client, gson, apiKey,
-                    "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, config.maxTokens)
         }
     }
 
@@ -107,12 +111,11 @@ class TranslationService private constructor(private val context: Context) {
         loadConfig(PreferencesManager.getInstance(context))
         if (config.useLocalModel || apiKey.isBlank()) return
 
-        val host = when {
-            config.modelName.startsWith("deepseek") -> "https://api.deepseek.com/"
-            config.modelName.startsWith("gpt")      -> "https://api.openai.com/"
-            config.modelName.startsWith("gemini")   -> "https://generativelanguage.googleapis.com/"
-            config.modelName.startsWith("claude")   -> "https://api.anthropic.com/"
-            else -> return   // 未知模型不预热（别再默认连 Gemini）
+        val host = when (config.provider) {
+            LlmProvider.DEEPSEEK -> "https://api.deepseek.com/"
+            LlmProvider.CHATGPT  -> "https://api.openai.com/"
+            LlmProvider.GEMINI   -> "https://generativelanguage.googleapis.com/"
+            LlmProvider.CLAUDE   -> "https://api.anthropic.com/"
         }
 
         val request = Request.Builder().url(host).head().build()

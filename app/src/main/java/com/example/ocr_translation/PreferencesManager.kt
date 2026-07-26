@@ -32,6 +32,8 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
         private const val KEY_ACCENT_INDEX = "accent_index"
         private const val KEY_WHEEL_FOCUS = "wheel_focus"
+        private const val KEY_CONTROL_PANEL_SCALE = "control_panel_scale"
+        private const val KEY_CUSTOM_MODELS = "custom_models"
         private const val KEY_TEXT_SIZE_MULTIPLIER = "text_size_multiplier"
         private const val KEY_OVERLAY_OPACITY = "overlay_opacity"
         private const val KEY_USE_ALTERNATIVE_STYLE = "use_alternative_style"
@@ -102,9 +104,17 @@ class PreferencesManager private constructor(context: Context) {
         else SecureStorage.setEncryptedValue(appContext, provider.secureKey, value.trim())
     }
 
+    /**
+     * Provider that owns [code], checking user-added models before falling back to the prefix
+     * match. A hand-entered code needn't follow the vendor's naming, and an unrecognised prefix
+     * would otherwise default to ChatGPT and send the request to the wrong endpoint.
+     */
+    fun providerFor(code: String): LlmProvider =
+        customModels.firstOrNull { it.code == code }?.provider ?: LlmProvider.fromModel(code)
+
     /** 运行时用：当前激活模型对应公司的 key。 */
     val activeApiKey: String
-        get() = getApiKey(LlmProvider.fromModel(modelName))
+        get() = getApiKey(providerFor(modelName))
 
     var modelName: String
         get() = prefs.getString(KEY_MODEL_NAME, "gpt-4-turbo") ?: "gpt-4-turbo"
@@ -139,6 +149,19 @@ class PreferencesManager private constructor(context: Context) {
     var wheelFocus: Int
         get() = prefs.getInt(KEY_WHEEL_FOCUS, -1)
         set(value) = prefs.edit { putInt(KEY_WHEEL_FOCUS, value) }
+
+    /**
+     * Models the user added by hand, as JSON. See [CustomModel] — vendors add models faster than
+     * the bundled list can follow, and a new model needs nothing but a code.
+     */
+    var customModels: List<CustomModel>
+        get() = CustomModel.listFromJson(prefs.getString(KEY_CUSTOM_MODELS, "") ?: "")
+        set(value) = prefs.edit { putString(KEY_CUSTOM_MODELS, CustomModel.listToJson(value)) }
+
+    /** Overall size of the floating control wheel, as a multiplier on its design dimensions. */
+    var controlPanelScale: Float
+        get() = prefs.getFloat(KEY_CONTROL_PANEL_SCALE, 1.0f)
+        set(value) = prefs.edit { putFloat(KEY_CONTROL_PANEL_SCALE, value) }
 
     var textSizeMultiplier: Float
         get() = prefs.getFloat(KEY_TEXT_SIZE_MULTIPLIER, 1.0f)

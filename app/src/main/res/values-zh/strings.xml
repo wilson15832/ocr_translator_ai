@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Simplified Chinese. Only user-visible strings are translated; format placeholders, debug text
+  and anything marked translatable="false" in values/strings.xml stays as it is.
+-->
+<resources>
+    <!-- App basics -->
+    <string name="app_name">屏幕翻译</string>
+    <string name="app_description">用 AI 实时翻译屏幕上的任何文字</string>
+    <string name="app_logo">应用图标</string>
+
+    <!-- Main activity -->
+    <string name="start_translation">开始翻译</string>
+    <string name="stop_translation">停止翻译</string>
+    <string name="start">开始</string>
+    <string name="stop">停止</string>
+    <string name="home_eyebrow">翻译方向</string>
+    <string name="home_eyebrow_active">翻译进行中</string>
+    <string name="overlay_mode_in_place">原位覆盖</string>
+    <string name="overlay_mode_merged">合并显示</string>
+    <string name="settings">设置</string>
+    <string name="enhanced_ocr_settings">增强 OCR</string>
+    <string name="language_settings">语言设置</string>
+    <string name="source_language">源语言</string>
+    <string name="target_language">目标语言</string>
+    <string name="permissions_info">本应用需要悬浮窗、无障碍和屏幕录制权限才能正常工作。</string>
+    <string name="swap_languages">互换</string>
+    <string name="ui_language">应用语言</string>
+    <string name="ui_language_system">跟随系统</string>
+    <string name="accent_color">主题色</string>
+    <string name="accent_color_selected">已选择主题色 %1$d</string>
+
+    <!--
+      Value formatters. The units are user-visible, so they're translated rather than marked
+      untranslatable; a Chinese UI reading "24小时" beats "24h" and still fits the value slot.
+    -->
+    <string name="seconds_value">%.1f 秒</string>
+    <string name="multiplier_value">%.1f 倍</string>
+    <string name="percentage_value">%d%%</string>
+    <string name="hours_value">%d 小时</string>
+    <string name="days_value">%d 天</string>
+
+    <!-- Settings activity -->
+    <string name="back">返回</string>
+    <string name="settings_title">翻译设置</string>
+    <string name="translation_settings">翻译设置</string>
+    <string name="llm_api_settings">大模型 API 设置</string>
+    <string name="api_endpoint">API 地址</string>
+    <string name="api_key">API 密钥</string>
+    <string name="api_key_unset">未设置</string>
+    <string name="api_key_reveal">显示或隐藏 API 密钥</string>
+    <string name="max_output_tokens">最大输出 token 数</string>
+    <string name="model">模型</string>
+    <string name="use_local_model">使用本地模型</string>
+    <string name="use_local_model_hint">使用本地模型时无需 API 密钥。</string>
+    <string name="add_model">添加模型…</string>
+    <string name="add_model_for">为 %1$s 添加模型</string>
+    <string name="add_model_title_label">显示名称</string>
+    <string name="add_model_code_label">模型代码</string>
+    <string name="add_model_hint">模型代码是实际发送给厂商的值。请求地址和格式不变，所以新模型通常只需要填这两项。</string>
+    <string name="add_model_added">已添加 %1$s</string>
+    <string name="add_model_incomplete">请同时填写显示名称和模型代码</string>
+    <string name="edit_model">编辑模型</string>
+    <string name="remove_model_action">移除</string>
+    <string name="remove_model_done">已移除 %1$s</string>
+    <string name="custom_model_suffix">%1$s（自定义）</string>
+    <string name="prompts_section">提示词</string>
+    <string name="capture_settings">扫描设置</string>
+    <string name="capture_interval">扫描间隔</string>
+    <string name="auto_capture">画面变化时自动扫描</string>
+    <string name="display_settings">悬浮层设置</string>
+    <string name="preview_section">预览</string>
+    <string name="preview_target_sample">曾经，魔法充盈于这个世界。</string>
+    <string name="result_text_section">译文样式</string>
+    <string name="text_size">字号</string>
+    <string name="overlay_opacity">不透明度</string>
+    <string name="loading_animation_section">加载动画</string>
+    <string name="gif_opacity">动画不透明度</string>
+    <string name="gif_size">动画大小</string>
+    <string name="gif_enabled">加载动画</string>
+    <string name="behaviour_section">行为</string>
+    <string name="use_alternative_style">气泡样式</string>
+    <string name="cache_settings">缓存与历史</string>
+    <string name="max_cache_entries">最大缓存条数</string>
+    <string name="cache_ttl">缓存有效期</string>
+    <string name="history_settings">历史记录</string>
+    <string name="keep_history_days">历史保留时长</string>
+    <string name="save">保存</string>
+    <string name="reset">重置</string>
+    <string name="reset_to_defaults">恢复默认设置</string>
+    <string name="settings_saved">设置已保存</string>
+    <string name="settings_reset">设置已恢复默认</string>
+    <string name="merge_overlap_boxes">翻译注音</string>
+    <string name="font_color">文字颜色</string>
+    <string name="background_color">背景颜色</string>
+    <string name="font_style">字体</string>
+    <string name="in_place_mode">原位翻译</string>
+    <string name="in_place_mode_hint">覆盖原文</string>
+    <string name="use_accessibility">通过无障碍读取文字</string>
+    <string name="use_accessibility_hint">直接从应用读取文字，结果精确。对把文字画在画布上的游戏（如 FGO）无效，这类仍使用屏幕录制。</string>
+    <string name="enable_accessibility_service">开启无障碍服务…</string>
+    <string name="system_prompt_label">系统提示词</string>
+    <string name="user_prompt_label">用户提示词（{source}、{target}、{text}）</string>
+    <string name="text_copied_to_clipboard">已复制到剪贴板</string>
+
+    <!-- Overlay control panel -->
+    <string name="pause_translation">暂停</string>
+    <string name="close_translation">关闭</string>
+    <string name="select_area">选择区域</string>
+    <string name="select_area_hint">拖动选择要翻译的区域</string>
+    <string name="show_area_border">显示所选区域边框</string>
+    <string name="scan_area_tag">扫描区域</string>
+    <string name="translate_now">立即翻译</string>
+    <string name="auto_mode">自动模式</string>
+    <string name="expand_handle">展开</string>
+    <string name="fold_favorite">折叠时显示的按钮</string>
+    <string name="expand_controls">更多选项</string>
+    <string name="collapse_controls">更少选项</string>
+    <string name="control_panel_collapse">折叠</string>
+    <string name="control_panel_dock">停靠到边缘</string>
+    <string name="control_panel_expand">展开</string>
+    <string name="control_panel_section">控制条</string>
+    <string name="control_panel_orientation">方向</string>
+    <string name="control_panel_scale">控制条大小</string>
+    <string name="control_panel_background_color">控制条背景</string>
+    <string name="control_panel_opacity">控制条不透明度</string>
+
+    <!-- Permissions -->
+    <string name="overlay_permission_title">悬浮窗权限</string>
+    <string name="overlay_permission_message">屏幕翻译需要在其他应用上层绘制才能显示译文，请授予该权限。</string>
+    <string name="accessibility_permission_title">无障碍权限</string>
+    <string name="accessibility_permission_message">屏幕翻译需要无障碍权限来识别屏幕上的文字。本应用不会记录按键，也不会收集个人信息。</string>
+    <string name="capture_permission_title">屏幕录制</string>
+    <string name="capture_permission_message">屏幕翻译需要录制屏幕内容以查找待翻译的文字。</string>
+    <string name="notification_permission_title">通知权限</string>
+    <string name="notification_permission_message">翻译过程中显示状态通知需要此权限</string>
+    <string name="media_projection_permission_title">屏幕录制权限</string>
+    <string name="media_projection_permission_message">录制屏幕内容以进行翻译需要此权限</string>
+
+    <!-- Service notifications -->
+    <string name="translation_active">翻译服务运行中</string>
+    <string name="tap_to_configure">点击进行设置</string>
+    <string name="capture_notification_channel_name">屏幕录制</string>
+    <string name="capture_notification_text">屏幕录制服务运行中</string>
+
+    <!-- Translation menu -->
+    <string name="copy_translation">复制译文</string>
+    <string name="copy_original">复制原文</string>
+    <string name="share">分享</string>
+
+    <!-- Area selection -->
+    <string name="translation_areas">翻译区域</string>
+    <string name="add_area">添加区域</string>
+    <string name="save_area">保存区域</string>
+    <string name="cancel">取消</string>
+    <string name="area_selection_instruction">拖动选择要翻译的区域</string>
+    <string name="clear_area">使用全屏（清除区域）</string>
+    <string name="clear_area_short">全屏</string>
+    <string name="use_area">使用此区域</string>
+    <string name="area_selection_title">选择翻译区域</string>
+    <string name="area_name_hint">区域名称</string>
+    <string name="area_save_dialog_title">保存翻译区域</string>
+    <string name="area_activated">区域已启用</string>
+    <string name="area_cleared">已切换为全屏翻译</string>
+    <string name="area_deleted">区域已删除</string>
+
+    <!-- Save translations to file -->
+    <string name="save_to_file_section">保存译文到文件</string>
+    <string name="save_to_file_enabled">保存到文本文件</string>
+    <string name="save_to_file_hint">每次会话会在所选文件夹中生成一个 .txt 文件，原文和译文会随出现顺序追加写入。</string>
+    <string name="save_folder">文件夹</string>
+    <string name="save_folder_choose">选择文件夹</string>
+    <string name="save_folder_none">未选择</string>
+    <string name="save_folder_current">保存到：%1$s</string>
+    <string name="save_folder_unset">文件夹访问权限已失效，请重新选择</string>
+
+    <!-- Custom font -->
+    <string name="custom_font_section">自定义字体（.ttf / .otf）</string>
+    <string name="custom_font">字体文件</string>
+    <string name="custom_font_load">加载字体</string>
+    <string name="custom_font_clear">清除字体</string>
+    <string name="custom_font_current">自定义字体：%1$s</string>
+    <string name="custom_font_none">未加载</string>
+    <string name="custom_font_load_failed">无法加载该字体文件</string>
+    <string name="custom_font_loaded">自定义字体已加载</string>
+    <string name="custom_font_cleared">自定义字体已清除</string>
+</resources>

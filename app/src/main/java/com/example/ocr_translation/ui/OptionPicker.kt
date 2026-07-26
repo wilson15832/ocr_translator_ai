@@ -28,9 +28,17 @@ object OptionPicker {
         title: CharSequence,
         entries: List<CharSequence>,
         selectedIndex: Int,
+        /** Rows for which the secondary (edit) button is shown. */
+        secondaryFor: (Int) -> Boolean = { false },
+        onSecondary: ((Int) -> Unit)? = null,
         onPick: (Int) -> Unit
     ) {
         val dialog = BottomSheetDialog(context)
+        // Callbacks run once the sheet has actually gone rather than as it starts animating out.
+        // Firing mid-dismiss left the dim scrim over whatever the callback did next — visible as a
+        // black flash when picking a UI language, because that recreates the activity underneath.
+        var pending: (() -> Unit)? = null
+        dialog.setOnDismissListener { pending?.invoke() }
         val content = LayoutInflater.from(context).inflate(R.layout.dialog_option_picker, null)
         content.findViewById<TextView>(R.id.pickerTitle).text = title
 
@@ -45,8 +53,17 @@ object OptionPicker {
                 if (isSelected) View.VISIBLE else View.INVISIBLE
             if (isSelected) selectedItem = item
             item.setOnClickListener {
+                pending = { onPick(index) }
                 dialog.dismiss()
-                onPick(index)
+            }
+            if (onSecondary != null && secondaryFor(index)) {
+                item.findViewById<ImageView>(R.id.optionSecondary).apply {
+                    visibility = View.VISIBLE
+                    setOnClickListener {
+                        pending = { onSecondary(index) }
+                        dialog.dismiss()
+                    }
+                }
             }
             container.addView(item)
         }

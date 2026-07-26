@@ -46,14 +46,114 @@ class SettingsActivity : AppCompatActivity() {
     private var foldSelIndex = 0
     private var panelBgColorIndex = 0
 
+    /** Index in [currentCodes] where the user's own models begin. */
+    private var firstCustomIndex = 0
+
+    /**
+     * Built-in models for [provider], then the user's own additions for it. Custom entries are
+     * marked in the list so they can be told apart, and so the picker knows which rows carry the
+     * edit action.
+     */
     private fun populateModels(provider: LlmProvider, selectCode: String? = null) {
         val names = resources.getStringArray(R.array.models)
         val codes = resources.getStringArray(R.array.model_codes)
-        val idx = codes.indices.filter { LlmProvider.fromModel(codes[it]) == provider }
-        currentCodes = idx.map { codes[it] }
-        currentModelNames = idx.map { names[it] }
+        val builtIn = codes.indices.filter { LlmProvider.fromModel(codes[it]) == provider }
+
+        val custom = preferencesManager.customModels.filter { it.provider == provider }
+        currentCodes = builtIn.map { codes[it] } + custom.map { it.code }
+        currentModelNames = builtIn.map { names[it] } +
+                custom.map { getString(R.string.custom_model_suffix, it.title) }
+        firstCustomIndex = builtIn.size
+
         modelIndex = selectCode?.let { currentCodes.indexOf(it) }?.takeIf { it >= 0 } ?: 0
         binding.rowModel.value = currentModelNames.getOrNull(modelIndex)
+    }
+
+    /**
+     * Model picker with an "Add model…" row appended, because vendors release models faster than
+     * the bundled `@array/models` can follow while the request URL and payload stay the same.
+     * User-added rows carry a pencil that opens them for editing or removal.
+     */
+    private fun showModelPicker() {
+        val options = currentModelNames + getString(R.string.add_model)
+        OptionPicker.show(
+            context = this,
+            title = getString(R.string.model),
+            entries = options,
+            selectedIndex = modelIndex,
+            secondaryFor = { index -> index in firstCustomIndex until currentModelNames.size },
+            onSecondary = { index -> customModelAt(index)?.let { promptForCustomModel(it) } }
+        ) { index ->
+            if (index == options.lastIndex) {
+                promptForCustomModel()
+            } else {
+                modelIndex = index
+                binding.rowModel.value = currentModelNames.getOrNull(index)
+            }
+        }
+    }
+
+    /** The custom model behind a picker row, or null if that row is a built-in. */
+    private fun customModelAt(index: Int): CustomModel? {
+        val code = currentCodes.getOrNull(index) ?: return null
+        return preferencesManager.customModels
+            .firstOrNull { it.provider == currentProvider && it.code == code }
+    }
+
+    /**
+     * Add, or edit when [existing] is given — in which case the dialog also offers to remove,
+     * since a mistyped code would otherwise be permanent.
+     */
+    private fun promptForCustomModel(existing: CustomModel? = null) {
+        val view = layoutInflater.inflate(R.layout.dialog_add_model, null)
+        val titleField = view.findViewById<android.widget.EditText>(R.id.editModelTitle)
+        val codeField = view.findViewById<android.widget.EditText>(R.id.editModelCode)
+        existing?.let {
+            titleField.setText(it.title)
+            codeField.setText(it.code)
+        }
+
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(
+                if (existing == null) getString(R.string.add_model_for, currentProvider.displayName)
+                else getString(R.string.edit_model)
+            )
+            .setView(view)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val title = titleField.text.toString().trim()
+                val code = codeField.text.toString().trim()
+                if (title.isEmpty() || code.isEmpty()) {
+                    Toast.makeText(this, R.string.add_model_incomplete, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                // Drop the row being edited and any same-code duplicate, then re-add.
+                preferencesManager.customModels = preferencesManager.customModels
+                    .filterNot { it == existing }
+                    .filterNot { it.provider == currentProvider && it.code == code } +
+                        CustomModel(currentProvider, title, code)
+                // Select what was just saved, so it takes effect on Save without another tap.
+                populateModels(currentProvider, code)
+                Toast.makeText(
+                    this, getString(R.string.add_model_added, title), Toast.LENGTH_SHORT
+                ).show()
+            }
+
+        if (existing != null) {
+            builder.setNeutralButton(R.string.remove_model_action) { _, _ ->
+                // Structural equality, not identity: the customModels getter re-parses its JSON on
+                // every read, so each access hands back fresh instances and `===` never matched —
+                // which is why removing a model appeared to do nothing.
+                preferencesManager.customModels =
+                    preferencesManager.customModels.filterNot { it == existing }
+                // Fall back to a built-in if the removed model was the selected one.
+                populateModels(currentProvider, currentCodes.firstOrNull { it != existing.code })
+                Toast.makeText(
+                    this, getString(R.string.remove_model_done, existing.title), Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        builder.show()
     }
 
     companion object {
@@ -148,7 +248,7 @@ class SettingsActivity : AppCompatActivity() {
         // LLM API settings
         binding.editSystemPrompt.setText(preferencesManager.systemPrompt)
         binding.editUserPrompt.setText(preferencesManager.userPrompt)
-        currentProvider = LlmProvider.fromModel(preferencesManager.modelName)
+        currentProvider = preferencesManager.providerFor(preferencesManager.modelName)
         binding.segmentProvider.setSelectionSilently(currentProvider.ordinal)
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
         populateModels(currentProvider, preferencesManager.modelName)
@@ -180,6 +280,7 @@ class SettingsActivity : AppCompatActivity() {
             controlPanelOrientationIndex(preferencesManager.controlPanelOrientation)
         )
         panelBgColorIndex = colorIndex(preferencesManager.controlPanelBgColor)
+        binding.sliderControlPanelScale.setSnapped(preferencesManager.controlPanelScale)
         binding.sliderControlPanelOpacity.setSnapped(preferencesManager.controlPanelOpacity)
 
         // Save-to-file + custom font
@@ -244,6 +345,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.sliderControlPanelOpacity.valueLabel.text = getString(
             R.string.percentage_value,
             (binding.sliderControlPanelOpacity.slider.value * 100).toInt()
+        )
+
+        binding.sliderControlPanelScale.valueLabel.text = getString(
+            R.string.multiplier_value,
+            binding.sliderControlPanelScale.slider.value
         )
     }
 
@@ -351,6 +457,11 @@ class SettingsActivity : AppCompatActivity() {
         // Speech-bubble style changes the preview's corner radius / border
         binding.switchAlternativeStyle.switch.setOnCheckedChangeListener { _, _ -> refreshPreview() }
 
+        binding.sliderControlPanelScale.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderControlPanelScale.valueLabel.text =
+                getString(R.string.multiplier_value, value)
+        }
+
         // Control panel opacity live readout
         binding.sliderControlPanelOpacity.slider.addOnChangeListener { _, value, _ ->
             binding.sliderControlPanelOpacity.valueLabel.text = getString(
@@ -410,9 +521,7 @@ class SettingsActivity : AppCompatActivity() {
         val fonts = resources.getStringArray(R.array.font_options).toList()
         val foldOptions = resources.getStringArray(R.array.fold_options).toList()
 
-        bindPicker(binding.rowModel, R.string.model, { currentModelNames }, { modelIndex }) {
-            modelIndex = it
-        }
+        binding.rowModel.setOnClickListener { showModelPicker() }
         bindPicker(binding.rowFontColor, R.string.font_color, { colors }, { textColorIndex }) {
             textColorIndex = it
         }
@@ -652,6 +761,7 @@ class SettingsActivity : AppCompatActivity() {
             binding.segmentControlPanelOrientation.selectedIndex.coerceIn(orientationValues.indices)
         ]
         preferencesManager.controlPanelBgColor = parseColorAt(colorValues, panelBgColorIndex)
+        preferencesManager.controlPanelScale = binding.sliderControlPanelScale.slider.value
         preferencesManager.controlPanelOpacity = binding.sliderControlPanelOpacity.slider.value
 
         // Save-to-file: the folder URI is set by the picker callback; only the enable switch is here.

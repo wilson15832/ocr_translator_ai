@@ -30,13 +30,61 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- Theme picker, collapsed: accent dot + chevron, top right -->
+        <!--
+          Top row: UI language on the left, theme picker on the right. Both are preferences of the
+          same weight, so they share the same unobtrusive strip above the content.
+        -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp">
+
+        <LinearLayout
+            android:id="@+id/btnUiLanguage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start|center_vertical"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/ui_language"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:minHeight="44dp"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="16dp">
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_language"
+                app:tint="?attr/colorPrimaryVariant" />
+
+            <TextView
+                android:id="@+id/textUiLanguage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:textColor="?attr/colorPrimaryVariant"
+                android:textSize="14sp"
+                tools:text="中文" />
+
+            <ImageView
+                android:id="@+id/languageChevron"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="5dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/btnAccentToggle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="end"
-            android:layout_marginTop="8dp"
+            android:layout_gravity="end|center_vertical"
             android:background="?attr/selectableItemBackground"
             android:clickable="true"
             android:contentDescription="@string/accent_color"
@@ -62,6 +110,20 @@
                 android:src="@drawable/ic_chevron_small"
                 app:tint="@color/home_chevron" />
         </LinearLayout>
+        </FrameLayout>
+
+        <!-- Expanded state: the language chips, filled in by MainActivity -->
+        <LinearLayout
+            android:id="@+id/uiLanguageOptions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:layout_marginStart="26dp"
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            tools:visibility="gone" />
 
         <!-- Expanded state: the swatch bar, filled in by MainActivity -->
         <LinearLayout

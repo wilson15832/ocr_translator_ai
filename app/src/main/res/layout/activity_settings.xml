@@ -612,6 +612,15 @@
                         app:srTitle="@string/control_panel_background_color" />
 
                     <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderControlPanelScale"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:ssFrom="0.6"
+                        app:ssStep="0.05"
+                        app:ssTitle="@string/control_panel_scale"
+                        app:ssTo="1.8" />
+
+                    <com.example.ocr_translation.ui.SettingsSliderRow
                         android:id="@+id/sliderControlPanelOpacity"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

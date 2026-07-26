@@ -82,6 +82,7 @@ class ControlWheel @JvmOverloads constructor(
     private var autoRunning = false
     private var panelColor = Color.TRANSPARENT
     private var lifted = false
+    private var sizeScale = 1f
 
     // Gesture state
     private var downX = 0f
@@ -106,7 +107,7 @@ class ControlWheel @JvmOverloads constructor(
 
         focusSlot.addView(
             focusIcon,
-            FrameLayout.LayoutParams(dp(38), dp(38)).apply { gravity = Gravity.CENTER }
+            FrameLayout.LayoutParams(sdp(38), sdp(38)).apply { gravity = Gravity.CENTER }
         )
         listOf(prevGhost, nextGhost).forEach { it.alpha = GHOST_ALPHA }
         leadChevron.imageTintList = android.content.res.ColorStateList.valueOf(CHEVRON_TINT)
@@ -161,6 +162,20 @@ class ControlWheel @JvmOverloads constructor(
             refresh()
         }
 
+    /**
+     * Scales every dimension of the strip together — glyphs, slot, chevrons, padding and the
+     * travel per notch — so the whole bar grows or shrinks as one object rather than the icons
+     * rattling around inside a fixed frame.
+     */
+    fun setSizeScale(scale: Float) {
+        val clamped = scale.coerceIn(0.6f, 1.8f)
+        if (clamped == sizeScale) return
+        sizeScale = clamped
+        setWheelOrientation(orientation)   // re-issues every child's params at the new scale
+        applyPadding()
+        refresh()
+    }
+
     /** Auto-scan state. The focus slot fills with the accent, so the wheel is its own indicator. */
     fun setAutoRunning(running: Boolean) {
         autoRunning = running
@@ -194,7 +209,7 @@ class ControlWheel @JvmOverloads constructor(
             null
         } else {
             GradientDrawable().apply {
-                cornerRadius = dp(CORNER_RADIUS_DP).toFloat()
+                cornerRadius = sdp(CORNER_RADIUS_DP).toFloat()
                 setColor(if (visible) panelColor else Color.TRANSPARENT)
                 if (lifted) {
                     setStroke(dp(2), AppTheme.colorPrimary(context))
@@ -269,12 +284,12 @@ class ControlWheel @JvmOverloads constructor(
      */
     private fun applyPadding() {
         if (folded) {
-            val p = dp(5)
+            val p = sdp(5)
             setPadding(p, p, p, p)
             return
         }
-        val along = dp(8)
-        val across = dp(2)
+        val along = sdp(8)
+        val across = sdp(2)
         if (orientation == VERTICAL) setPadding(across, along, across, along)
         else setPadding(along, across, along, across)
     }
@@ -446,23 +461,26 @@ class ControlWheel @JvmOverloads constructor(
         if (orientation == VERTICAL) event.rawY else event.rawX
 
     /** One notch of travel per neighbouring action. */
-    private fun notchPx() = dp(40).toFloat()
+    private fun notchPx() = sdp(40).toFloat()
 
-    private fun chevronParams() = LayoutParams(dp(12), dp(12))
+    private fun chevronParams() = LayoutParams(sdp(12), sdp(12))
 
-    private fun ghostParams() = LayoutParams(dp(20), dp(20)).apply {
+    private fun ghostParams() = LayoutParams(sdp(20), sdp(20)).apply {
         if (orientation == VERTICAL) {
-            topMargin = dp(2)
-            bottomMargin = dp(2)
+            topMargin = sdp(2)
+            bottomMargin = sdp(2)
         } else {
-            marginStart = dp(2)
-            marginEnd = dp(2)
+            marginStart = sdp(2)
+            marginEnd = sdp(2)
         }
     }
 
-    private fun focusParams() = LayoutParams(dp(52), dp(52))
+    private fun focusParams() = LayoutParams(sdp(52), sdp(52))
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /** dp scaled by the user's control-panel size preference. */
+    private fun sdp(v: Int) = (v * sizeScale * resources.displayMetrics.density).toInt()
 
     private companion object {
         /** Below this the gesture is a cycle; past it the strip lifts and follows the finger. */

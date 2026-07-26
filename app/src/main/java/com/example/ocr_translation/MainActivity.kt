@@ -23,6 +23,7 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.example.ocr_translation.databinding.ActivityMainBinding
+import com.example.ocr_translation.ui.AppLocale
 import com.example.ocr_translation.ui.AppTheme
 import com.example.ocr_translation.ui.OptionPicker
 
@@ -47,8 +48,26 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        appliedLocale = androidx.core.os.ConfigurationCompat
+            .getLocales(resources.configuration).get(0)?.toString()
+        bindContent()
+
+        // Observe translation active state
+        viewModel.translationActive.observe(this) { active ->
+            updateTranslationUI(active)
+        }
+    }
+
+    /**
+     * Re-reads the layout and re-attaches every listener. Split out of [onCreate] so a locale
+     * change can reuse it — see [onConfigurationChanged].
+     */
+    private fun bindContent() {
+        setupUiLanguage()
         setupAccentPicker()
         setupLanguagePair()
+        refreshSettingsRowValues()
+        updateTranslationUI(viewModel.translationActive.value == true)
 
         binding.btnStartTranslation.setOnClickListener {
             Log.d("MainActivity", "btnStartTranslation clicked!") // <-- Add Log
@@ -65,11 +84,94 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java)
                 .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_OVERLAY))
         }
+    }
 
-        // Observe translation active state
-        viewModel.translationActive.observe(this) { active ->
-            updateTranslationUI(active)
+    /**
+     * Swaps the content view in place when the UI language changes, instead of letting the
+     * activity be destroyed and rebuilt for it.
+     *
+     * The manifest claims `locale|layoutDirection`, so the system hands the new configuration here
+     * rather than restarting us. Re-inflating picks up the new locale's strings while the window —
+     * and therefore what's on screen — is never torn down. A restart briefly leaves no content
+     * attached, which is the black frame that showed between the old and new language.
+     */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // configChanges also covers rotation, which needs no re-inflation — only act on a locale
+        // change, or an expanded top bar would collapse every time the device turns.
+        val locale = androidx.core.os.ConfigurationCompat.getLocales(newConfig).get(0)?.toString()
+        if (locale == appliedLocale) return
+        appliedLocale = locale
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        bindContent()
+    }
+
+    /** Locale the current content view was inflated for; see [onConfigurationChanged]. */
+    private var appliedLocale: String? = null
+
+    /**
+     * The app's own UI language, top-left. Separate from the translation source/target pair below
+     * it — those decide what gets translated, this decides what the app's own labels read.
+     *
+     * AppCompat recreates the activity itself once the locale is applied, so there is no
+     * recreate() here; adding one would recreate twice.
+     */
+    private fun setupUiLanguage() {
+        val container = binding.uiLanguageOptions
+        container.removeAllViews()
+        val selected = AppLocale.selectedIndex()
+        binding.textUiLanguage.setText(AppLocale.options[selected].labelRes)
+
+        AppLocale.options.forEachIndexed { index, option ->
+            container.addView(languageChip(getString(option.labelRes), index == selected) {
+                if (index != selected) AppLocale.select(index)
+            }, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { if (index > 0) marginStart = dp(8) })
         }
+
+        binding.btnUiLanguage.setOnClickListener {
+            toggleTopBar(container, binding.languageChevron, alsoCollapse = binding.accentSwatches)
+        }
+    }
+
+    /** One option in the language bar; the current one is filled with the accent. */
+    private fun languageChip(label: String, selected: Boolean, onClick: () -> Unit) =
+        android.widget.TextView(this).apply {
+            text = label
+            textSize = 13f
+            setPadding(dp(12), dp(7), dp(12), dp(7))
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_lang_chip)
+            val fill = if (selected) AppTheme.colorPrimary(this@MainActivity)
+            else ContextCompat.getColor(this@MainActivity, R.color.ios_fill_secondary)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(fill)
+            setTextColor(
+                if (selected) AppTheme.contrastOn(fill)
+                else ContextCompat.getColor(this@MainActivity, R.color.home_value)
+            )
+            if (selected) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+
+    /**
+     * Expands one of the two top-bar preferences, collapsing the other. They sit on the same strip
+     * and expand into the same space, so leaving both open would stack them.
+     */
+    private fun toggleTopBar(target: View, chevron: View, alsoCollapse: View) {
+        val expanded = target.visibility == View.VISIBLE
+        // Animates the row's appearance without hand-written animators.
+        TransitionManager.beginDelayedTransition(
+            binding.root as android.view.ViewGroup, AutoTransition().setDuration(160)
+        )
+        target.visibility = if (expanded) View.GONE else View.VISIBLE
+        alsoCollapse.visibility = View.GONE
+        chevron.animate().rotation(if (expanded) 0f else 90f).setDuration(160).start()
+        val other = if (chevron === binding.languageChevron) binding.accentChevron
+        else binding.languageChevron
+        other.animate().rotation(0f).setDuration(160).start()
     }
 
     /**
@@ -121,14 +223,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnAccentToggle.setOnClickListener {
-            val expanded = container.visibility == View.VISIBLE
-            // Animates the row's appearance without hand-written animators.
-            TransitionManager.beginDelayedTransition(
-                binding.root as android.view.ViewGroup, AutoTransition().setDuration(160)
-            )
-            container.visibility = if (expanded) View.GONE else View.VISIBLE
-            binding.accentChevron.animate().rotation(if (expanded) 0f else 90f)
-                .setDuration(160).start()
+            toggleTopBar(container, binding.accentChevron, alsoCollapse = binding.uiLanguageOptions)
         }
     }
 
@@ -197,7 +292,7 @@ class MainActivity : AppCompatActivity() {
     private fun refreshSettingsRowValues() {
         val prefs = PreferencesManager.getInstance(this)
         binding.textTranslationValue.text =
-            LlmProvider.fromModel(prefs.modelName).displayName
+            prefs.providerFor(prefs.modelName).displayName
         binding.textOverlayValue.setText(
             if (prefs.inPlaceMode) R.string.overlay_mode_in_place else R.string.overlay_mode_merged
         )
