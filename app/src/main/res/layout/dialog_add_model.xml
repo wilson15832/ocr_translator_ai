@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Body of the "Add model" dialog: a display title and the code sent to the vendor. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="8dp"
+    android:paddingEnd="24dp">
+
+    <TextView
+        style="@style/IosRowSubtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/add_model_title_label" />
+
+    <androidx.appcompat.widget.AppCompatEditText
+        android:id="@+id/editModelTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/add_model_title_hint"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:maxLines="1"
+        android:textColor="@color/ios_label"
+        android:textColorHint="@color/ios_label_tertiary"
+        android:textSize="17sp" />
+
+    <TextView
+        style="@style/IosRowSubtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/add_model_code_label" />
+
+    <androidx.appcompat.widget.AppCompatEditText
+        android:id="@+id/editModelCode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/add_model_code_hint"
+        android:importantForAutofill="no"
+        android:inputType="textNoSuggestions"
+        android:maxLines="1"
+        android:textColor="@color/ios_label"
+        android:textColorHint="@color/ios_label_tertiary"
+        android:textSize="17sp" />
+
+    <TextView
+        style="@style/IosFootnote"
+        android:layout_marginTop="12dp"
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp"
+        android:text="@string/add_model_hint" />
+</LinearLayout>

@@ -35,6 +35,20 @@
     <string name="model">Model</string>
     <string name="use_local_model">Use local model</string>
     <string name="use_local_model_hint">No API key is needed with a local model.</string>
+    <!-- Custom models: vendors ship new models faster than the bundled list can follow -->
+    <string name="add_model">Add model…</string>
+    <string name="add_model_for">Add model for %1$s</string>
+    <string name="add_model_title_label">Display name</string>
+    <string name="add_model_title_hint" translatable="false">GPT-5.6</string>
+    <string name="add_model_code_label">Model code</string>
+    <string name="add_model_code_hint" translatable="false">gpt-5.6</string>
+    <string name="add_model_hint">The code is what gets sent to the vendor. The request URL and format are unchanged, so a new model usually needs nothing else.</string>
+    <string name="add_model_added">Added %1$s</string>
+    <string name="add_model_incomplete">Enter both a display name and a model code</string>
+    <string name="edit_model">Edit model</string>
+    <string name="remove_model_action">Remove</string>
+    <string name="remove_model_done">Removed %1$s</string>
+    <string name="custom_model_suffix">%1$s (custom)</string>
     <string name="capture_settings">Scan Settings</string>
     <string name="capture_interval">Scan interval</string>
     <string name="auto_capture">Auto-capture on change</string>
@@ -138,6 +152,7 @@
     <string name="control_panel_section">Control panel</string>
     <string name="control_panel_orientation">Orientation</string>
     <string name="control_panel_background_color">Panel background</string>
+    <string name="control_panel_scale">Bar size</string>
     <string name="control_panel_opacity">Panel opacity</string>
 
     <!-- Round 4: save translations to file -->
@@ -164,6 +179,11 @@
     <!-- Round 5: iOS-style grouped-list redesign -->
     <string name="back">Back</string>
     <string name="swap_languages">Swap</string>
+    <!-- The app's own UI language, distinct from the translation source/target -->
+    <string name="ui_language">App language</string>
+    <string name="ui_language_system">System default</string>
+    <string name="ui_language_en" translatable="false">English</string>
+    <string name="ui_language_zh" translatable="false">中文</string>
     <string name="accent_color">Theme color</string>
     <string name="accent_color_selected">Theme color %1$d selected</string>
     <string name="api_key_unset">Not set</string>

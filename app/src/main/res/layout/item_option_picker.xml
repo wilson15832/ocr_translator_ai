@@ -17,6 +17,18 @@
         android:layout_height="wrap_content"
         android:layout_weight="1" />
 
+    <!-- Per-row secondary action (edit a user-added model); hidden unless the caller wants it -->
+    <ImageView
+        android:id="@+id/optionSecondary"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/edit_model"
+        android:padding="10dp"
+        android:src="@drawable/ic_edit"
+        android:visibility="gone"
+        app:tint="?attr/colorPrimary" />
+
     <ImageView
         android:id="@+id/optionCheck"
         android:layout_width="16dp"

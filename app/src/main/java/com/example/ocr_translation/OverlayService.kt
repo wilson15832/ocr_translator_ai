@@ -267,8 +267,10 @@ class OverlayService : Service() {
          * box, so a box matched exactly to the text leaves a halo showing.
          */
         private const val TEXT_SHARE = 0.88f
+        /** Blocks shorter than this share of the group's tallest are treated as furigana. */
+        private const val FURIGANA_RATIO = 0.6f
         /** Characters of extra width, so the original's trailing glyphs stay covered. */
-        private const val WIDTH_SLACK_CHARS = 4f
+        private const val WIDTH_SLACK_CHARS = 2f
 
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
         private val mainHandler = Handler(Looper.getMainLooper())
@@ -474,6 +476,8 @@ class OverlayService : Service() {
             if (prefs.controlPanelOrientation == "vertical") LinearLayout.VERTICAL
             else LinearLayout.HORIZONTAL
         )
+
+        wheel.setSizeScale(prefs.controlPanelScale)
 
         val baseRgb = prefs.controlPanelBgColor and 0x00FFFFFF
         val alpha = (255f * prefs.controlPanelOpacity.coerceIn(0f, 1f)).toInt()
@@ -1142,9 +1146,7 @@ class OverlayService : Service() {
         val left: Int,
         val top: Int,
         val width: Int,
-        val height: Int,
-        /** Vertical padding, i.e. the distance from the box's edge to the text inside it. */
-        val padV: Int
+        val height: Int
     )
 
     private fun renderInPlace(translations: List<TranslationService.TranslatedBlock>) {
@@ -1166,23 +1168,39 @@ class OverlayService : Service() {
         // overlaps between boxes can be resolved with all of them known.
         val boxes = mutableListOf<PlannedBox>()
         for (group in groupOverlapping(translations)) {
-            // One size for the whole group. Sizing each line from its own OCR box makes lines
-            // that happen to contain Latin or tall glyphs ("Alterego") come out visibly larger
-            // than their neighbours, even though the original renders them all the same.
-            val pitch = typicalPitch(group)
+            // Furigana sits directly above the line it annotates, at roughly half the size. Left
+            // in the statistics it drags both of them down: it shortens the median gap between
+            // consecutive tops, and its own small height lowers the median height — so the body
+            // text came out sized to the ruby rather than to itself. Measure from the body lines
+            // only, whether or not the furigana ends up being drawn.
+            val body = bodyLines(group)
+            val pitch = typicalPitch(body)
             if (prefs.mergeOverlapBoxes) {
                 // 模式B：合并重叠框、保留注音（单背景，组内各行透明叠加）
-                boxes += buildMergedBox(group, pitch, screenW, loc, prefs)
+                boxes += buildMergedBox(group, body, pitch, screenW, loc, prefs)
             } else {
                 // 模式A：独立框、丢弃注音（组内丢掉矮块，其余各自成框）
-                val maxH = group.maxOf { it.boundingBox.height() }
-                for (t in group.filter { it.boundingBox.height() >= maxH * 0.6f }) {
+                for (t in body) {
                     boxes += buildSeparateBox(t, pitch, screenW, loc, prefs)
                 }
             }
         }
         placeWithoutOverlap(boxes)
         inPlaceOverlay.visibility = View.VISIBLE
+    }
+
+    /**
+     * The group's body lines — everything that isn't furigana.
+     *
+     * Ruby text is reliably much shorter than what it annotates, so the tallest block in the group
+     * gives a threshold without needing to know which script is involved.
+     */
+    private fun bodyLines(
+        group: List<TranslationService.TranslatedBlock>
+    ): List<TranslationService.TranslatedBlock> {
+        val maxH = group.maxOf { it.boundingBox.height() }
+        return group.filter { it.boundingBox.height() >= maxH * FURIGANA_RATIO }
+            .ifEmpty { group }
     }
 
     /**
@@ -1328,12 +1346,14 @@ class OverlayService : Service() {
         // Offset by the padding so the *text* lands on the original, not the box's edge.
         val left = (rect.left - loc[0] - padH).coerceIn(0, (screenW - boxWidth).coerceAtLeast(0))
         val top = (rect.top - loc[1] - padV).coerceAtLeast(0)
-        return PlannedBox(tv, left, top, boxWidth, boxHeight, padV)
+        return PlannedBox(tv, left, top, boxWidth, boxHeight)
     }
 
     /** 模式B：一组重叠 block 合一个框，单背景，组内各行透明叠加（保留注音）。 */
     private fun buildMergedBox(
-        group: List<TranslationService.TranslatedBlock>, pitch: Int, screenW: Int,
+        group: List<TranslationService.TranslatedBlock>,
+        body: List<TranslationService.TranslatedBlock>,
+        pitch: Int, screenW: Int,
         loc: IntArray, prefs: PreferencesManager
     ): PlannedBox {
         val union = Rect(group.first().boundingBox)
@@ -1348,12 +1368,20 @@ class OverlayService : Service() {
             background = inPlaceBoxBackground(bg)
             elevation = dp(3).toFloat()
         }
+        // Body lines share one size; furigana keeps its own, proportionally smaller one — this
+        // mode exists to preserve the ruby, and rendering it at body size would defeat that.
+        val bodyH = typicalHeight(body)
         for (t in group.sortedBy { it.boundingBox.top }) {
+            val isBody = t in body
+            val lineSize = if (isBody) fitted else textSizeForBox(
+                (pitch * TEXT_SHARE *
+                        (t.boundingBox.height().toFloat() / bodyH).coerceIn(0.4f, 1f)).toInt()
+            )
             container.addView(TextView(this).apply {
                 text = t.translatedText
                 setTextColor(prefs.translationTextColor)
                 typeface = resultTypeface()
-                setTextSize(TypedValue.COMPLEX_UNIT_PX, fitted)
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, lineSize)
                 includeFontPadding = false
                 gravity = Gravity.CENTER_VERTICAL
             })
@@ -1364,7 +1392,7 @@ class OverlayService : Service() {
         // Offset by the padding so the *text* lands on the original, not the box's edge.
         val left = (union.left - loc[0] - dp(4)).coerceIn(0, (screenW - boxWidth).coerceAtLeast(0))
         val top = (union.top - loc[1] - padV).coerceAtLeast(0)
-        return PlannedBox(container, left, top, boxWidth, boxHeight, padV)
+        return PlannedBox(container, left, top, boxWidth, boxHeight)
     }
 
     /**
@@ -1375,67 +1403,45 @@ class OverlayService : Service() {
      * in-place mode is meant to cover the original text, keeping a box's left edge and sliding it
      * down is the least disruptive way out.
      */
-    private class Placed(val rect: Rect, val padV: Int)
-
+    /**
+     * Places the boxes top-down, moving any that would land on an already-placed one below it.
+     *
+     * Deliberately just overlap prevention. Earlier versions also tried to erase the gaps between
+     * boxes — stretching each one down to meet its neighbour, letting a box overlap the previous
+     * one's padding, and closing the push to zero — so the covers would tile the original with no
+     * seams. On a real screen that made things worse: the leading between the original's lines
+     * isn't uniform, so filling it produced ragged blocks, and the permissive overlap let boxes
+     * eat into each other. A visible seam between two boxes is a far smaller problem.
+     *
+     * Left edges are preserved: in-place mode is about covering the original, and moving sideways
+     * would break the correspondence with the line underneath.
+     */
     private fun placeWithoutOverlap(boxes: List<PlannedBox>) {
-        val ordered = boxes.sortedWith(compareBy({ it.top }, { it.left }))
-        val placed = mutableListOf<Placed>()
-        val clearance = dp(2)
-
-        // Pass 1 — resolve collisions, but only the ones that actually matter.
-        //
-        // A box's bottom padding is empty background, so the next box covering *that* hides
-        // nothing. Only an overlap deep enough to come within `clearance` of the text below needs
-        // a shove, and then only far enough to sit `clearance` under that text — not under the
-        // whole box. Pushing to the box's edge instead counts the padding twice, and that
-        // double-count is what accumulated into a large drift down the screen.
-        //
-        // Left edges are preserved throughout: in-place mode is about covering the original, and
-        // moving sideways would break the correspondence.
-        for (box in ordered) {
+        val gap = dp(2)
+        val placed = mutableListOf<Rect>()
+        for (box in boxes.sortedWith(compareBy({ it.top }, { it.left }))) {
             val rect = Rect(box.left, box.top, box.left + box.width, box.top + box.height)
+            // Each shove can push the box onto a different neighbour, so repeat until it lands
+            // clear. Bounded in case a pathological set of rects would otherwise loop.
             var moved = true
             var guard = 0
             while (moved && guard++ < 32) {
                 moved = false
                 for (other in placed) {
-                    if (!Rect.intersects(rect, other.rect)) continue
-                    val overlap = other.rect.bottom - rect.top
-                    if (overlap <= 0) continue
-                    // How much of the box above we're allowed to cover before reaching its text.
-                    val harmless = other.padV - clearance
-                    if (overlap > harmless) {
-                        rect.offsetTo(rect.left, other.rect.bottom - other.padV + clearance)
+                    if (Rect.intersects(rect, other)) {
+                        rect.offsetTo(rect.left, other.bottom + gap)
                         moved = true
                     }
                 }
             }
-            placed += Placed(rect, box.padV)
-        }
-
-        // Pass 2 — close the leading. OCR boxes hug their glyphs, so the space *between* the
-        // original's lines belongs to no box and stays visible as a stripe of untranslated text
-        // between two covers. Stretch each box down to meet the next one below it, but only
-        // across a gap small enough to be line spacing rather than a genuine paragraph break.
-        for (i in placed.indices) {
-            val rect = placed[i].rect
-            val next = placed.filterIndexed { j, other ->
-                j != i && other.rect.top >= rect.bottom &&
-                        minOf(rect.right, other.rect.right) > maxOf(rect.left, other.rect.left)
-            }.minByOrNull { it.rect.top } ?: continue
-            val gap = next.rect.top - rect.bottom
-            // Up to three quarters of a line is spacing; beyond that it's a blank line or a
-            // paragraph break, and stretching across it would paint over untranslated content.
-            val fillable = (rect.height() * 3 / 4).coerceAtLeast(dp(8))
-            if (gap in 1..fillable) rect.bottom = next.rect.top
-        }
-
-        for ((box, slot) in ordered.zip(placed)) {
-            val rect = slot.rect
-            inPlaceOverlay.addView(box.view, FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
-                leftMargin = rect.left
-                topMargin = rect.top
-            })
+            placed += rect
+            inPlaceOverlay.addView(
+                box.view,
+                FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
+                    leftMargin = rect.left
+                    topMargin = rect.top
+                }
+            )
         }
     }
 

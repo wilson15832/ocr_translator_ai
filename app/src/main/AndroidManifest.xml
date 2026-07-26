@@ -18,13 +18,14 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
+        android:localeConfig="@xml/locales_config"
         android:theme="@style/Theme.ScreenTranslator">
 
 
         <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|locale|layoutDirection"
             android:exported="true"
             android:theme="@style/Theme.ScreenTranslator.Home">
             <intent-filter>
@@ -39,6 +40,19 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
+
+        <!--
+          Lets AppCompat persist the per-app UI language on releases before Android 13, where the
+          platform has no per-app locale of its own. Never started; it only carries the metadata.
+        -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
 
         <!-- Screen Capture foreground service (MediaProjection) -->
         <service
