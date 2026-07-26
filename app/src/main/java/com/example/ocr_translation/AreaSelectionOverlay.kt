@@ -57,57 +57,88 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
 
-    private var startX = 0f
-    private var startY = 0f
-    private var currentX = 0f
-    private var currentY = 0f
-    private var isDragging = false
+    /** The live selection, in view coordinates. Normalised: left <= right, top <= bottom. */
+    private val selection = RectF()
+
+    /**
+     * What the current gesture is doing.
+     *
+     * Resizing and drawing are the same operation with a different fixed point — a corner drag
+     * pins the opposite corner and follows the finger, exactly as drawing pins where the finger
+     * went down. Sharing the path also means dragging a corner past its opposite one flips the box
+     * the way you'd expect, instead of needing a special case.
+     */
+    private enum class Grip { NONE, CORNER, MOVE }
+
+    private var grip = Grip.NONE
+
+    /** The point a [Grip.CORNER] drag holds still: the corner opposite the one grabbed. */
+    private var anchorX = 0f
+    private var anchorY = 0f
+
+    /** Where inside the box a [Grip.MOVE] was grabbed, so it doesn't jump under the finger. */
+    private var grabOffsetX = 0f
+    private var grabOffsetY = 0f
 
     /** Notified when the user starts (true) / finishes (false) dragging a box. */
     var onDragStateChanged: ((dragging: Boolean) -> Unit)? = null
 
-    val selectedRect: RectF
-        get() = RectF(
-            minOf(startX, currentX),
-            minOf(startY, currentY),
-            maxOf(startX, currentX),
-            maxOf(startY, currentY)
-        )
+    val selectedRect: RectF get() = RectF(selection)
 
-    /** True once the user has drawn something worth using. */
+    /**
+     * Restores a previously chosen area so it can be adjusted instead of redrawn.
+     *
+     * Reselecting from scratch was the only way to change the area, which made a small correction —
+     * the dialogue box is 20px taller than you thought — as much work as the original selection.
+     */
+    fun setSelection(rect: RectF?) {
+        if (rect == null) selection.setEmpty() else selection.set(rect)
+        invalidate()
+    }
+
+    /** True once there is something worth using. */
     private val hasSelection: Boolean
-        get() = selectedRect.width() > 10 && selectedRect.height() > 10
+        get() = selection.width() > MIN_SIZE && selection.height() > MIN_SIZE
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                startX = event.x
-                startY = event.y
-                currentX = event.x
-                currentY = event.y
-                isDragging = true
+                beginGesture(event.x, event.y)
                 onDragStateChanged?.invoke(true)
                 invalidate()
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (isDragging) {
-                    currentX = event.x
-                    currentY = event.y
-                    invalidate()
-                    return true
+                when (grip) {
+                    Grip.CORNER -> {
+                        selection.set(
+                            minOf(anchorX, event.x).coerceAtLeast(0f),
+                            minOf(anchorY, event.y).coerceAtLeast(0f),
+                            maxOf(anchorX, event.x).coerceAtMost(width.toFloat()),
+                            maxOf(anchorY, event.y).coerceAtMost(height.toFloat())
+                        )
+                    }
+                    Grip.MOVE -> {
+                        // Positioned from the grab offset rather than accumulated deltas, so
+                        // dragging past an edge and back doesn't leave the box lagging the finger.
+                        val w = selection.width()
+                        val h = selection.height()
+                        selection.offsetTo(
+                            (event.x - grabOffsetX).coerceIn(0f, (width - w).coerceAtLeast(0f)),
+                            (event.y - grabOffsetY).coerceIn(0f, (height - h).coerceAtLeast(0f))
+                        )
+                    }
+                    Grip.NONE -> return true
                 }
+                invalidate()
+                return true
             }
-            MotionEvent.ACTION_UP -> {
-                isDragging = false
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                grip = Grip.NONE
                 onDragStateChanged?.invoke(false)
-                // Make sure we have minimum dimensions
-                if (selectedRect.width() < 10 || selectedRect.height() < 10) {
-                    startX = 0f
-                    startY = 0f
-                    currentX = 0f
-                    currentY = 0f
-                }
+                // A tap, or a box too small to be worth anything: drop it rather than leave a
+                // sliver behind that the buttons would happily accept.
+                if (!hasSelection) selection.setEmpty()
                 invalidate()
                 return true
             }
@@ -115,16 +146,49 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         return super.onTouchEvent(event)
     }
 
+    /**
+     * Decides what a touch does: a corner grabs that corner, anywhere inside moves the whole box,
+     * and anywhere outside starts a new one.
+     *
+     * Corners win over the interior so a small box is still adjustable — its handles would
+     * otherwise all be inside it and unreachable.
+     */
+    private fun beginGesture(x: Float, y: Float) {
+        val slop = HANDLE_TOUCH_DP * density
+        if (hasSelection) {
+            val onLeft = kotlin.math.abs(x - selection.left) <= slop
+            val onRight = kotlin.math.abs(x - selection.right) <= slop
+            val onTop = kotlin.math.abs(y - selection.top) <= slop
+            val onBottom = kotlin.math.abs(y - selection.bottom) <= slop
+            if ((onLeft || onRight) && (onTop || onBottom)) {
+                grip = Grip.CORNER
+                anchorX = if (onLeft) selection.right else selection.left
+                anchorY = if (onTop) selection.bottom else selection.top
+                return
+            }
+            if (selection.contains(x, y)) {
+                grip = Grip.MOVE
+                grabOffsetX = x - selection.left
+                grabOffsetY = y - selection.top
+                return
+            }
+        }
+        grip = Grip.CORNER
+        anchorX = x
+        anchorY = y
+        selection.set(x, y, x, y)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        if (!isDragging && !hasSelection) {
+        if (grip == Grip.NONE && !hasSelection) {
             // Nothing drawn yet: dim the whole screen so the instruction bar reads.
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), scrimPaint)
             return
         }
 
-        val area = selectedRect
+        val area = selection
         drawScrimAround(canvas, area)
 
         val radius = 18f * density
@@ -177,5 +241,13 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         )
         canvas.drawRoundRect(chip, 8f * density, 8f * density, chipPaint)
         canvas.drawText(label, centreX - textW / 2, bottom - padV - metrics.descent, chipTextPaint)
+    }
+
+    private companion object {
+        /** How near a corner a touch has to land to grab it, rather than move the box. */
+        const val HANDLE_TOUCH_DP = 28f
+
+        /** Below this in either direction the box is treated as a stray tap and discarded. */
+        const val MIN_SIZE = 10f
     }
 }

@@ -778,9 +778,18 @@ class OverlayService : Service() {
         if (areaSelectionView != null) return
 
         val selector = AreaSelectionOverlay(themedContext)
+        // Open on the area already in use, so reopening the picker is a correction rather than a
+        // fresh start. The window is full-screen with no limits, so screen coordinates are the
+        // view's own — the same space sendAreaToCapture hands back.
+        val existing = activeTranslationArea
+            ?: PreferencesManager.getInstance(this).getActiveTranslationArea()
+        selector.setSelection(existing)
 
         val hint = TextView(this).apply {
-            text = getString(R.string.select_area_hint)
+            text = getString(
+                if (existing != null) R.string.select_area_hint_adjust
+                else R.string.select_area_hint
+            )
             setTextColor(Color.parseColor("#A6FFFFFF"))
             textSize = 13f
             gravity = Gravity.CENTER
