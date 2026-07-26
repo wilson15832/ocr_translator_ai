@@ -118,6 +118,23 @@ object LineMetrics {
     }
 
     /**
+     * Whether two OCR rects are two pieces of one line of the original, judged on vertical overlap.
+     *
+     * OCR splits a line wherever the layout leaves a wide enough gap — a centred second half, a
+     * tabbed column — and the pieces come back as separate blocks sitting at the same height. They
+     * have to be told apart from lines genuinely stacked above one another, because the two want
+     * opposite treatment when their covers collide: stacked lines get pushed apart vertically,
+     * pieces of one line must stay level and be kept apart horizontally instead.
+     *
+     * Half the shorter piece's height is a wide margin either way. Pieces of a line share a top
+     * almost exactly; consecutive lines don't overlap at all, since an OCR box stops at the ink.
+     */
+    fun onSameLine(aTop: Int, aBottom: Int, bTop: Int, bBottom: Int): Boolean {
+        val overlap = minOf(aBottom, bBottom) - maxOf(aTop, bTop)
+        return overlap > minOf(aBottom - aTop, bBottom - bTop) / 2
+    }
+
+    /**
      * The vertical slot every line in a group gets: [typicalPitch], held between the body height
      * and a multiple of it.
      *

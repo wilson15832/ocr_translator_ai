@@ -1251,7 +1251,9 @@ class OverlayService : Service() {
         /** The cover colour, kept so a merged backdrop can be drawn in it. */
         val bgColor: Int,
         /** The OCR rect this covers, which is what the merge threshold is measured against. */
-        val source: Rect
+        val source: Rect,
+        /** Width without the cosmetic slack — the floor a trim may not go below. */
+        val minWidth: Int
     )
 
     private fun renderInPlace(translations: List<TranslationService.TranslatedBlock>) {
@@ -1357,13 +1359,21 @@ class OverlayService : Service() {
     private fun measuredBoxWidth(
         view: View, originalWidth: Int, screenW: Int, textSizePx: Float
     ): Int {
-        val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        view.measure(unspecified, unspecified)
         // A few extra characters: the original's own glyphs can overhang its reported box, and a
         // box sized exactly to the text leaves that last stroke uncovered. For CJK one character
         // is one em, i.e. the text size.
         val slack = (textSizePx * WIDTH_SLACK_CHARS).toInt()
-        return (maxOf(originalWidth, view.measuredWidth) + slack).coerceAtMost(screenW)
+        return (tightBoxWidth(view, originalWidth, screenW) + slack).coerceAtMost(screenW)
+    }
+
+    /**
+     * The same width without the slack: what the box actually needs to cover its original and hold
+     * its text. [trimToLineNeighbour] may take the slack back, but must not cut into this.
+     */
+    private fun tightBoxWidth(view: View, originalWidth: Int, screenW: Int): Int {
+        val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        view.measure(unspecified, unspecified)
+        return maxOf(originalWidth, view.measuredWidth).coerceAtMost(screenW)
     }
 
     /**
@@ -1463,6 +1473,7 @@ class OverlayService : Service() {
         tv.setPadding(padH, padV, padH, padV)
         tv.minHeight = pitch
 
+        val minWidth = tightBoxWidth(tv, rect.width(), screenW)
         val boxWidth = measuredBoxWidth(tv, rect.width(), screenW, fitted)
         // One pitch unless the translation genuinely wrapped, which legitimately needs more.
         val boxHeight = maxOf(pitch, measuredBoxHeight(tv, boxWidth))
@@ -1481,7 +1492,7 @@ class OverlayService : Service() {
         // Offset by the padding so the *text* lands on the original, not the box's edge.
         val left = (rect.left - loc[0] - padH).coerceIn(0, (screenW - boxWidth).coerceAtLeast(0))
         val top = centredOn(rect, boxHeight, loc)
-        return PlannedBox(tv, left, top, boxWidth, boxHeight, bg, rect)
+        return PlannedBox(tv, left, top, boxWidth, boxHeight, bg, rect, minWidth)
     }
 
     /**
@@ -1536,11 +1547,12 @@ class OverlayService : Service() {
             )
         }
 
+        val minWidth = tightBoxWidth(container, union.width(), screenW)
         val boxWidth = measuredBoxWidth(container, union.width(), screenW, widestSize)
         val boxHeight = measuredBoxHeight(container, boxWidth)
         val left = (union.left - loc[0] - dp(4)).coerceIn(0, (screenW - boxWidth).coerceAtLeast(0))
         val top = centredOn(union, boxHeight, loc)
-        return PlannedBox(container, left, top, boxWidth, boxHeight, bg, union)
+        return PlannedBox(container, left, top, boxWidth, boxHeight, bg, union, minWidth)
     }
 
     /**
@@ -1558,24 +1570,27 @@ class OverlayService : Service() {
      */
     private fun placeWithoutOverlap(boxes: List<PlannedBox>, mergeCovers: Boolean, maxGapPx: Int) {
         val gap = dp(2)
-        val placed = mutableListOf<Rect>()
         val laidOut = mutableListOf<Pair<PlannedBox, Rect>>()
         for (box in boxes.sortedWith(compareBy({ it.top }, { it.left }))) {
             val rect = Rect(box.left, box.top, box.left + box.width, box.top + box.height)
+            trimToLineNeighbour(box, rect, boxes, gap)
             // Each shove can push the box onto a different neighbour, so repeat until it lands
             // clear. Bounded in case a pathological set of rects would otherwise loop.
             var moved = true
             var guard = 0
             while (moved && guard++ < 32) {
                 moved = false
-                for (other in placed) {
-                    if (Rect.intersects(rect, other)) {
-                        rect.offsetTo(rect.left, other.bottom + gap)
+                for ((other, otherRect) in laidOut) {
+                    // Sliding down is for a box that landed on the line below. Two halves of one
+                    // line are not that: they sit side by side and belong at the same height, and
+                    // the trim above has already kept them apart horizontally.
+                    if (onSameLine(box.source, other.source)) continue
+                    if (Rect.intersects(rect, otherRect)) {
+                        rect.offsetTo(rect.left, otherRect.bottom + gap)
                         moved = true
                     }
                 }
             }
-            placed += rect
             laidOut += box to rect
         }
         // Backdrops go in first so they sit under the text they cover.
@@ -1589,6 +1604,40 @@ class OverlayService : Service() {
                 }
             )
         }
+    }
+
+    /**
+     * Whether two OCR rects are two pieces of one line of the original.
+     *
+     * OCR splits a line wherever the layout leaves a wide enough gap — a centred second half, a
+     * tabbed column — and the pieces come back as separate blocks at the same height, in different
+     * groups, since [related] joins only what overlaps horizontally.
+     */
+    private fun onSameLine(a: Rect, b: Rect): Boolean =
+        LineMetrics.onSameLine(a.top, a.bottom, b.top, b.bottom)
+
+    /**
+     * Stops a cover short of the next piece of the same line, instead of letting it run underneath.
+     *
+     * The width carries a couple of characters of slack so the original's overhanging strokes stay
+     * covered. Against a line the OCR split in two, that slack reaches into the right-hand piece —
+     * and an overlap is all [placeWithoutOverlap] looks at, so it would push one of them onto the
+     * line below. Which one is arbitrary: they are sorted by top, and their tops differ by a few
+     * pixels whenever the two pieces' text measures to different heights, as it does the moment one
+     * of them contains a character the font has to fall back for.
+     *
+     * Only the slack is given back — never the width the box needs to cover its own original.
+     */
+    private fun trimToLineNeighbour(
+        box: PlannedBox, rect: Rect, all: List<PlannedBox>, gap: Int
+    ) {
+        val nextLeft = all.asSequence()
+            .filter { it !== box && onSameLine(box.source, it.source) }
+            .filter { it.source.left > box.source.left }
+            .minOfOrNull { it.left } ?: return
+        rect.right = rect.right.coerceAtMost(
+            (nextLeft - gap).coerceAtLeast(rect.left + box.minWidth)
+        )
     }
 
     /**

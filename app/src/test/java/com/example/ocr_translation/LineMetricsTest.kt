@@ -146,6 +146,34 @@ class LineMetricsTest {
     }
 
     @Test
+    fun `two pieces of one split line are recognised as level`() {
+        // 「まっかせて！　　とりあえず発破かけてみよっか☆」 came back as two blocks, both at top 567
+        // and both 38 tall, because the gap in the middle was wide enough for OCR to break there.
+        // Treating them as stacked pushed the left half onto the line below.
+        assertTrue(LineMetrics.onSameLine(567, 605, 567, 605))
+    }
+
+    @Test
+    fun `consecutive lines are not on the same line`() {
+        // Tops 522 and 567 from the same capture: an OCR box stops at the ink, so stacked lines
+        // don't overlap at all.
+        assertFalse(LineMetrics.onSameLine(522, 560, 567, 605))
+    }
+
+    @Test
+    fun `a slight vertical offset still counts as the same line`() {
+        // Split pieces rarely agree to the pixel; the margin is half the shorter piece.
+        assertTrue(LineMetrics.onSameLine(567, 605, 573, 609))
+    }
+
+    @Test
+    fun `ruby sitting just above its line is not on it`() {
+        // Ruby is roughly half height and clears the body's top edge, so the covers may still be
+        // stacked apart. 20 tall against a 38 body, overlapping by 4.
+        assertFalse(LineMetrics.onSameLine(549, 569, 565, 603))
+    }
+
+    @Test
     fun `duplicate tops do not produce a zero slot`() {
         // Two blocks side by side on one line share a top; the zero gap must not become the pitch.
         assertEquals(50, LineMetrics.lineSlot(listOf(100, 100), listOf(40, 40)))
