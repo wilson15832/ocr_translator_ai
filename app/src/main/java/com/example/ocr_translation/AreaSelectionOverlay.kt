@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
@@ -29,9 +30,17 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         color = Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = 4f * density
-        strokeCap = Paint.Cap.SQUARE
+        // Rounded at the elbow and at the free ends, which takes the hardness off a bracket
+        // without turning it into a rounded corner: the softening is half the stroke, about 2dp,
+        // where a corner radius would be an order of magnitude more and would read as a curve.
+        // Each bracket is one path rather than two lines so the join exists to be rounded at all.
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
         isAntiAlias = true
     }
+
+    /** Reused across the four corners; building a Path per frame would allocate on every drag. */
+    private val cornerPath = Path()
 
     /** Rule-of-thirds guides: present enough to compose against, faint enough to ignore. */
     private val gridPaint = Paint().apply {
@@ -245,17 +254,21 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         val r = area.right + out
         val b = area.bottom + out
 
-        canvas.drawLine(l, t, l + arm, t, cornerPaint)
-        canvas.drawLine(l, t, l, t + arm, cornerPaint)
+        bracket(canvas, l + arm, t, l, t, l, t + arm)
+        bracket(canvas, r - arm, t, r, t, r, t + arm)
+        bracket(canvas, l + arm, b, l, b, l, b - arm)
+        bracket(canvas, r - arm, b, r, b, r, b - arm)
+    }
 
-        canvas.drawLine(r - arm, t, r, t, cornerPaint)
-        canvas.drawLine(r, t, r, t + arm, cornerPaint)
-
-        canvas.drawLine(l, b - arm, l, b, cornerPaint)
-        canvas.drawLine(l, b, l + arm, b, cornerPaint)
-
-        canvas.drawLine(r - arm, b, r, b, cornerPaint)
-        canvas.drawLine(r, b - arm, r, b, cornerPaint)
+    /** One bracket: the elbow at the middle point, an arm running to each of the others. */
+    private fun bracket(
+        canvas: Canvas, x1: Float, y1: Float, cx: Float, cy: Float, x2: Float, y2: Float
+    ) {
+        cornerPath.rewind()
+        cornerPath.moveTo(x1, y1)
+        cornerPath.lineTo(cx, cy)
+        cornerPath.lineTo(x2, y2)
+        canvas.drawPath(cornerPath, cornerPaint)
     }
 
     /** Live "330 × 130" readout, above the box or tucked inside it when there's no room. */

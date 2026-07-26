@@ -81,6 +81,21 @@ class OverlayService : Service() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /**
+     * Width of the display itself, which is not what `resources.displayMetrics` reports.
+     *
+     * A service's own metrics exclude system decor and don't track rotation the way the display
+     * does, so in a landscape game they come back well short. Anything comparing a window's
+     * on-screen position against the screen's width has to use this instead — the two are measured
+     * in the same space, and mixing them silently clamps a right-hand window towards the middle.
+     */
+    private fun screenWidthPx(): Int {
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(metrics)
+        return metrics.widthPixels
+    }
+
+    /**
      * Service context + overlay theme + the user's accent. Anything drawing in the accent must be
      * constructed with this, not with `this` — see AppTheme.overlayContext.
      */
@@ -631,8 +646,9 @@ class OverlayService : Service() {
         if (dockSliverView != null) return
         val loc = IntArray(2)
         controlPanel.getLocationOnScreen(loc)
-        val screenW = resources.displayMetrics.widthPixels
-        val onLeft = loc[0] + controlPanel.width / 2 < screenW / 2
+        // Real display width, not the service's metrics: the same mismatch that pulled the wheel
+        // label back towards the middle would dock a right-hand wheel to the left edge.
+        val onLeft = loc[0] + controlPanel.width / 2 < screenWidthPx() / 2
         val sliverTop = loc[1] + controlPanel.height / 2 - dp(38)
 
         controlPanel.visibility = View.GONE
@@ -762,7 +778,7 @@ class OverlayService : Service() {
         val labelW = label.measuredWidth
         val labelH = label.measuredHeight
         val gap = dp(8)
-        val screenW = resources.displayMetrics.widthPixels
+        val screenW = screenWidthPx()
         val loc = IntArray(2)
         controlPanel.getLocationOnScreen(loc)
 
