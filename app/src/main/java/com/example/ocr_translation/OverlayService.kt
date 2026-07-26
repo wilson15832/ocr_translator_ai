@@ -278,6 +278,8 @@ class OverlayService : Service() {
         private const val MAX_TEXT_SP = 48f
         /** Characters of extra width, so the original's trailing glyphs stay covered. */
         private const val WIDTH_SLACK_CHARS = 2f
+        /** How far the docked sliver is taken below the panel's own background colour. */
+        private const val DOCK_SLIVER_DARKEN = 0.35f
         // The sizing and spacing constants live in LineMetrics, with the arithmetic they govern.
 
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
@@ -440,7 +442,13 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 getOverlayType(),
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,  // Keep this flag
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        // Absolute screen coordinates, so params.x/y and getLocationOnScreen agree.
+                        // Three places mix them — the drag's first-move anchor flip, the fold
+                        // recentre, and the label placement — and each was off by the left inset.
+                        // Not NO_LIMITS: the drag has no clamp of its own, and the screen edge is
+                        // what currently stops the bar being pushed out of reach.
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 // First launch: place against the top-right edge as before. Once the user drags
@@ -642,6 +650,26 @@ class OverlayService : Service() {
      * The sliver doubles as the state readout while the wheel is hidden: green while auto-scan is
      * running, accent otherwise.
      */
+    /**
+     * The docked sliver's colour: the panel's own background, taken down a shade.
+     *
+     * The sliver is the parked bar, so it should look like it — it used to take the accent, which
+     * made the two look like unrelated pieces of chrome. Darker rather than identical because it
+     * has none of the bar's contents to distinguish it: a 7dp strip in exactly the panel colour
+     * reads as a stray edge of some window rather than as something to tap.
+     *
+     * Opaque whatever the panel's opacity is. At the panel's own setting a sliver this narrow can
+     * disappear into the game behind it, and the one thing it has to do is be findable.
+     */
+    private fun dockSliverColor(): Int {
+        val panel = PreferencesManager.getInstance(this).controlPanelBgColor or 0xFF000000.toInt()
+        return Color.rgb(
+            (Color.red(panel) * (1f - DOCK_SLIVER_DARKEN)).toInt(),
+            (Color.green(panel) * (1f - DOCK_SLIVER_DARKEN)).toInt(),
+            (Color.blue(panel) * (1f - DOCK_SLIVER_DARKEN)).toInt()
+        )
+    }
+
     private fun dockControlPanel() {
         if (dockSliverView != null) return
         val loc = IntArray(2)
@@ -664,7 +692,7 @@ class OverlayService : Service() {
                 background = android.graphics.drawable.GradientDrawable().apply {
                     setColor(
                         if (ScreenCaptureService.autoMode) Color.parseColor("#34C759")
-                        else AppTheme.colorPrimary(themedContext)
+                        else dockSliverColor()
                     )
                     // Rounded on the inboard side only, square against the screen edge.
                     val r = dp(5).toFloat()
@@ -748,7 +776,13 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 getOverlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        // Absolute screen coordinates. Without these, x is measured from the
+                        // content frame — inside the cutout and the bars — while the wheel's
+                        // position comes from getLocationOnScreen, which is measured from the
+                        // display. See placeWheelLabel.
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
             ).apply { gravity = Gravity.TOP or Gravity.START }
         placeWheelLabel(label, params)
@@ -771,6 +805,13 @@ class OverlayService : Service() {
      * The width is measured rather than assumed, because the label is as wide as the action's name
      * and those differ — a guessed offset is either short for the long names or leaves a gap for
      * the short ones, and on the left-hand placement the offset *is* the width.
+     *
+     * Everything here is in display coordinates, which is why the window carries
+     * FLAG_LAYOUT_IN_SCREEN. A window laid out without it is positioned from the content frame,
+     * inside the cutout and the system bars, while [View.getLocationOnScreen] reports from the
+     * display — so the label landed a left inset further right than asked. That could only show up
+     * on one side: to the right of a left-hand wheel it reads as extra clearance, to the left of a
+     * right-hand one it walks straight under the bar.
      */
     private fun placeWheelLabel(label: TextView, params: WindowManager.LayoutParams) {
         val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)

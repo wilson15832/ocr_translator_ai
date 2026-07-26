@@ -30,10 +30,6 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         color = Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = 4f * density
-        // Rounded at the elbow and at the free ends, which takes the hardness off a bracket
-        // without turning it into a rounded corner: the softening is half the stroke, about 2dp,
-        // where a corner radius would be an order of magnitude more and would read as a curve.
-        // Each bracket is one path rather than two lines so the join exists to be rounded at all.
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         isAntiAlias = true
@@ -254,21 +250,46 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         val r = area.right + out
         val b = area.bottom + out
 
-        bracket(canvas, l + arm, t, l, t, l, t + arm)
-        bracket(canvas, r - arm, t, r, t, r, t + arm)
-        bracket(canvas, l + arm, b, l, b, l, b - arm)
-        bracket(canvas, r - arm, b, r, b, r, b - arm)
+        // Never more than a third of the arm, or the two straights vanish into the curve and the
+        // bracket stops reading as a corner.
+        val radius = minOf(ELBOW_RADIUS_DP * density, arm / 3f)
+
+        bracket(canvas, l + arm, t, l, t, l, t + arm, radius)
+        bracket(canvas, r - arm, t, r, t, r, t + arm, radius)
+        bracket(canvas, l + arm, b, l, b, l, b - arm, radius)
+        bracket(canvas, r - arm, b, r, b, r, b - arm, radius)
     }
 
-    /** One bracket: the elbow at the middle point, an arm running to each of the others. */
+    /**
+     * One bracket: an arm in from ([x1], [y1]), a curve through the elbow at ([cx], [cy]), an arm
+     * back out to ([x2], [y2]).
+     *
+     * The elbow is an explicit quadratic rather than a rounded stroke join, so how soft it looks is
+     * a number that can be set — a join only ever rounds by half the stroke width, which meant
+     * asking for more curve meant asking for a thicker bracket.
+     */
     private fun bracket(
-        canvas: Canvas, x1: Float, y1: Float, cx: Float, cy: Float, x2: Float, y2: Float
+        canvas: Canvas,
+        x1: Float, y1: Float,
+        cx: Float, cy: Float,
+        x2: Float, y2: Float,
+        radius: Float
     ) {
         cornerPath.rewind()
         cornerPath.moveTo(x1, y1)
-        cornerPath.lineTo(cx, cy)
+        // Stop short of the elbow along each arm and let the corner itself be the control point:
+        // the curve then leaves and rejoins the arms along their own direction, with no kink.
+        cornerPath.lineTo(towards(cx, x1, radius), towards(cy, y1, radius))
+        cornerPath.quadTo(cx, cy, towards(cx, x2, radius), towards(cy, y2, radius))
         cornerPath.lineTo(x2, y2)
         canvas.drawPath(cornerPath, cornerPaint)
+    }
+
+    /** [distance] from [from] in the direction of [to]; [from] itself when the two coincide. */
+    private fun towards(from: Float, to: Float, distance: Float): Float = when {
+        to > from -> from + distance
+        to < from -> from - distance
+        else -> from
     }
 
     /** Live "330 × 130" readout, above the box or tucked inside it when there's no room. */
@@ -293,6 +314,9 @@ class AreaSelectionOverlay(context: Context) : View(context) {
     private companion object {
         /** Length of each bracket arm on a box with room for it. */
         const val ARM_DP = 24f
+
+        /** How far the elbow is rounded. Big enough to read as soft, short of a quarter-circle. */
+        const val ELBOW_RADIUS_DP = 7f
 
         /** Below this in either direction the thirds grid is left off. */
         const val GRID_MIN_DP = 96f
