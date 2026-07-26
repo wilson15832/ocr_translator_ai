@@ -27,7 +27,6 @@
     <color name="ios_label_tertiary">#4DEBEBF5</color>
     <color name="ios_fill_secondary">#24787880</color>
     <color name="ios_destructive">#FF453A</color>
-    <color name="ios_switch_on">#30D158</color>
     <color name="ios_switch_off">#39393D</color>
     <color name="ios_switch_thumb">#FFFFFF</color>
     <color name="ios_segment_thumb">#636366</color>

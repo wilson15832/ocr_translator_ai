@@ -47,6 +47,10 @@ class PreferencesManager private constructor(context: Context) {
         private const val PREF_HAS_ACTIVE_AREA = "has_active_area"
         private const val KEY_MAX_TOKENS = "max_tokens"
         private const val KEY_MERGE_OVERLAP = "merge_overlap_boxes"
+        private const val KEY_MERGE_ADJACENT = "merge_adjacent_boxes"
+        private const val KEY_MERGE_ADJACENT_GAP = "merge_adjacent_gap_dp"
+        private const val KEY_CUSTOM_FONTS = "custom_fonts"
+        private const val LEGACY_CUSTOM_FONT_PATH = "custom_font_path"
         private const val KEY_SPINNER_ALPHA = "spinner_alpha"
         private const val KEY_SPINNER_SIZE_DP = "spinner_size_dp"
         private const val KEY_SPINNER_X = "spinner_x"
@@ -63,6 +67,44 @@ class PreferencesManager private constructor(context: Context) {
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    init {
+        migrateLegacyCustomFont()
+    }
+
+    /**
+     * Folds the old single-slot custom font into [customFonts].
+     *
+     * The previous build copied every picked file over one fixed `custom_font.ttf` and applied it
+     * unconditionally, ahead of whatever the font picker said. Anyone upgrading with a font loaded
+     * would otherwise have it vanish, so it becomes a normal entry and stays selected.
+     *
+     * Runs in the constructor rather than from Settings: the overlay reads the font too, and a user
+     * who never opens Settings would keep rendering from a preference nothing writes any more.
+     */
+    private fun migrateLegacyCustomFont() {
+        val legacyPath = prefs.getString(LEGACY_CUSTOM_FONT_PATH, "").orEmpty()
+        if (legacyPath.isEmpty()) return
+        val legacy = java.io.File(legacyPath)
+        val fileName = "font_${System.currentTimeMillis()}.ttf"
+        val dir = CustomFont.dir(appContext)
+        val migrated = runCatching {
+            if (!legacy.exists()) return@runCatching false
+            dir.mkdirs()
+            legacy.copyTo(java.io.File(dir, fileName), overwrite = true)
+            legacy.delete()
+            true
+        }.getOrElse {
+            Log.w("PreferencesManager", "Couldn't migrate the legacy custom font", it)
+            false
+        }
+        prefs.edit { remove(LEGACY_CUSTOM_FONT_PATH) }
+        if (!migrated) return
+        // Named for the file it came from, since the old slot kept no record of the original name.
+        val font = CustomFont(name = "Custom font", fileName = fileName)
+        customFonts = customFonts + font
+        translationFont = font.token
+    }
 
     // NOTE: The previous build persisted MediaProjection resultCode + Intent to SharedPreferences
     // (via Parcel marshalling + Base64) so the service could be relaunched without re-prompting.
@@ -144,7 +186,7 @@ class PreferencesManager private constructor(context: Context) {
     /**
      * Which action the control wheel has armed, as an ordinal of
      * [com.example.ocr_translation.ui.ControlWheel.Action]. The wheel remembers its focus between
-     * sessions; -1 means it has never been cycled, in which case [foldFavorite] seeds it.
+     * sessions; -1 means it has never been cycled, and the wheel starts on Translate.
      */
     var wheelFocus: Int
         get() = prefs.getInt(KEY_WHEEL_FOCUS, -1)
@@ -179,11 +221,6 @@ class PreferencesManager private constructor(context: Context) {
         get() = prefs.getBoolean("show_area_border", true)
         set(value) = prefs.edit { putBoolean("show_area_border", value) }
 
-    // Which floating-bar button stays visible when the bar is folded ("manual" | "auto")
-    var foldFavorite: String
-        get() = prefs.getString("fold_favorite", "manual") ?: "manual"
-        set(value) = prefs.edit { putString("fold_favorite", value) }
-
     // Translation result display
     var translationTextColor: Int
         get() = prefs.getInt("translation_text_color", 0xFFFFFFFF.toInt())
@@ -202,22 +239,37 @@ class PreferencesManager private constructor(context: Context) {
         get() = prefs.getBoolean(KEY_MERGE_OVERLAP, false)
         set(value) = prefs.edit { putBoolean(KEY_MERGE_OVERLAP, value) }
 
+    // In-place mode: cover a run of vertically adjacent lines with one background instead of one
+    // per line. The lines themselves stay where they are — this only merges what blots out the
+    // original, so the seams between consecutive covers disappear.
+    var mergeAdjacentBoxes: Boolean
+        get() = prefs.getBoolean(KEY_MERGE_ADJACENT, false)
+        set(value) = prefs.edit { putBoolean(KEY_MERGE_ADJACENT, value) }
+
+    // How far apart two original lines may be and still count as the same run, in dp. Games vary
+    // far too much for one number: a dialogue box sets its lines tight, a menu spaces them out,
+    // and the right threshold is whatever separates "these belong together" from "these don't" on
+    // the screen in front of you. dp rather than px so it means the same on any density.
+    var mergeAdjacentGapDp: Int
+        get() = prefs.getInt(KEY_MERGE_ADJACENT_GAP, 12)
+        set(value) = prefs.edit { putInt(KEY_MERGE_ADJACENT_GAP, value) }
+
     // Enhanced OCR: read text from the accessibility node tree instead of screen-capture OCR.
     // Exact for native apps; has no effect on canvas/GL games (which expose no text nodes).
     var useAccessibility: Boolean
         get() = prefs.getBoolean("use_accessibility", false)
         set(value) = prefs.edit { putBoolean("use_accessibility", value) }
 
-    // Result text font (system family name, e.g. "sans-serif-medium", "casual", "cursive")
+    // Result text font: a system family name ("sans-serif-medium"), a bundled res/font name, or a
+    // CustomFont.PREFIX token naming one of [customFonts].
     var translationFont: String
         get() = prefs.getString("translation_font", "sans-serif") ?: "sans-serif"
         set(value) = prefs.edit { putString("translation_font", value) }
 
-    // User-loaded font file (absolute path inside filesDir; "" = no custom font, use [translationFont]).
-    // Set via SettingsActivity's "Load custom font" picker, which copies the .ttf/.otf here.
-    var customFontPath: String
-        get() = prefs.getString("custom_font_path", "") ?: ""
-        set(value) = prefs.edit { putString("custom_font_path", value) }
+    /** Typefaces the user loaded from files, as JSON. See [CustomFont]. */
+    var customFonts: List<CustomFont>
+        get() = CustomFont.listFromJson(prefs.getString(KEY_CUSTOM_FONTS, "") ?: "")
+        set(value) = prefs.edit { putString(KEY_CUSTOM_FONTS, CustomFont.listToJson(value)) }
 
     // ---- Control panel (floating bar) styling ----
     // "horizontal" (default) or "vertical" — orientation of the button strip

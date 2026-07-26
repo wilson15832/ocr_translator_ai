@@ -28,7 +28,6 @@
     <!-- secondarySystemFill — segmented-control track, inactive slider track -->
     <color name="ios_fill_secondary">#1F787880</color>
     <color name="ios_destructive">#FF3B30</color>
-    <color name="ios_switch_on">#34C759</color>
     <color name="ios_switch_off">#E9E9EA</color>
     <color name="ios_switch_thumb">#FFFFFF</color>
     <color name="ios_segment_thumb">#FFFFFFFF</color>

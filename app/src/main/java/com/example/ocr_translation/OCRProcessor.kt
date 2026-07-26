@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
+import kotlin.math.hypot
 
 import android.util.Log
 
@@ -45,7 +46,19 @@ object OCRProcessor {
     data class TextBlock(
         val text: String,
         val boundingBox: Rect,
-        val confidence: Float = 1f
+        val confidence: Float = 1f,
+        /**
+         * The line's own height, measured across its quad rather than across [boundingBox].
+         *
+         * They differ whenever ML Kit reads the line as slightly rotated: `boundingBox` is the
+         * axis-aligned box around a quad that need not be axis-aligned, so its height picks up
+         * `width * sin(angle)` on top of the real one. Over a line several hundred pixels wide, a
+         * degree or two of estimated skew is worth tens of pixels — enough to make one line of a
+         * paragraph look half again as tall as its neighbours when nothing about the type differs.
+         *
+         * 0 when unknown; callers fall back to the bounding box.
+         */
+        val lineHeight: Int = 0
     )
 
     suspend fun setLanguage(languageCode: String) {
@@ -81,10 +94,40 @@ object OCRProcessor {
         for (block in visionText.textBlocks) {
             for (line in block.lines) {
                 val bb = line.boundingBox ?: continue
-                out.add(TextBlock(text = line.text, boundingBox = bb))
+                out.add(
+                    TextBlock(
+                        text = line.text,
+                        boundingBox = bb,
+                        lineHeight = quadHeight(line.cornerPoints, bb.height())
+                    )
+                )
             }
         }
         return out
+    }
+
+    /**
+     * Height of the line across its own quad: the mean of the two side edges.
+     *
+     * [Text.Line.cornerPoints] comes back in reading order — top-left, top-right, bottom-right,
+     * bottom-left — rotated with the text, so the left and right edges are the line's height no
+     * matter how it is oriented, where the bounding box's height is only the height when the line
+     * happens to be level.
+     *
+     * Falls back to [fallback] if the points are missing or come out implausible; the measurement
+     * can only ever be shorter than the axis-aligned box, so a larger one means something is not
+     * what this assumes and the box is the safer answer.
+     */
+    private fun quadHeight(corners: Array<android.graphics.Point>?, fallback: Int): Int {
+        if (corners == null || corners.size < 4) return fallback
+        val left = hypot(
+            (corners[3].x - corners[0].x).toDouble(), (corners[3].y - corners[0].y).toDouble()
+        )
+        val right = hypot(
+            (corners[2].x - corners[1].x).toDouble(), (corners[2].y - corners[1].y).toDouble()
+        )
+        val height = ((left + right) / 2.0).toInt()
+        return if (height in 1..fallback) height else fallback
     }
 
 //    suspend fun cleanup() {

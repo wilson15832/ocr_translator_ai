@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  "Merge the covers": two separate bars with a gap between them, and arrows pushing them together.
+  Shown while the covers are still separate, so the glyph is the action the tap performs.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,3h16v5h-16z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,16h16v5h-16z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,15l-3,-3h2v-2h2v2h2z" />
+</vector>

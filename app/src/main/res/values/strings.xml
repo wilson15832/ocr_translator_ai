@@ -69,6 +69,20 @@
     <string name="settings_saved">Settings saved</string>
     <string name="settings_reset">Settings reset to defaults</string>
     <string name="merge_overlap_boxes">Translate furigana</string>
+    <string name="merge_adjacent_boxes">Merge adjacent covers</string>
+    <string name="merge_adjacent_boxes_hint">One background behind a run of lines instead of one per line, so no seams show between them. Each line still sits on the one it replaces, at its own length.</string>
+    <string name="merge_adjacent_gap">Merge lines closer than</string>
+    <string name="dp_value">%1$ddp</string>
+    <string name="merge_covers">Merge covers</string>
+
+    <!-- Connection test (top of Translation settings) -->
+    <string name="connection_test_section">Connection test</string>
+    <string name="connection_test_idle">Checks the provider, key and model currently on this screen.</string>
+    <string name="connection_test_run">Test</string>
+    <string name="connection_test_running">Contacting %1$s…</string>
+    <string name="connection_test_ok">%1$s\n\nOK · %2$d ms</string>
+    <string name="connection_test_failed">Failed · %1$s</string>
+    <string name="connection_test_local">Local model is on, so no request is sent.</string>
 
     <!-- Value formatters -->
     <string name="seconds_value">%.1fs</string>
@@ -87,7 +101,6 @@
     <string name="translate_now">Translate now</string>
     <string name="auto_mode">Auto mode</string>
     <string name="expand_handle">Expand</string>
-    <string name="fold_favorite">Button shown when folded</string>
     <string name="font_color">Text color</string>
     <string name="background_color">Background color</string>
     <string name="in_place_mode">In-place translation</string>
@@ -166,15 +179,11 @@
     <string name="save_folder_unset">Folder access lost — please pick again</string>
 
     <!-- Round 4: custom font -->
-    <string name="custom_font_section">Custom font (.ttf / .otf)</string>
     <string name="custom_font">Font file</string>
-    <string name="custom_font_load">Load font</string>
-    <string name="custom_font_clear">Clear font</string>
-    <string name="custom_font_current">Custom font: %1$s</string>
-    <string name="custom_font_none">None loaded</string>
+    <string name="custom_font_load">Load font…</string>
     <string name="custom_font_load_failed">Couldn\'t load that font file</string>
-    <string name="custom_font_loaded">Custom font loaded</string>
-    <string name="custom_font_cleared">Custom font cleared</string>
+    <string name="custom_font_added">Added %1$s</string>
+    <string name="custom_font_remove_title">Remove %1$s?</string>
 
     <!-- Round 5: iOS-style grouped-list redesign -->
     <string name="back">Back</string>

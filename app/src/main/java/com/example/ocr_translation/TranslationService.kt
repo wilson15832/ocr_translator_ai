@@ -18,6 +18,9 @@ class TranslationService private constructor(private val context: Context) {
 
     // Singleton pattern implementation
     companion object {
+        /** A `BLOCK_…:` tag at the start of a line, with whatever spacing the model chose. */
+        private val BLOCK_MARKER = Regex("""^\s*BLOCK_\S*\s*:\s*""")
+
         @Volatile
         private var INSTANCE: TranslationService? = null
 
@@ -82,24 +85,82 @@ class TranslationService private constructor(private val context: Context) {
         apiKey = preferencesManager.activeApiKey
     }
 
-    private fun createLlmClient(): LlmClient {
-        val model = config.modelName
-        // Switched on the provider rather than the model's prefix: the URL and payload format are
-        // a property of the vendor, not of the model name, which is exactly why a user can add a
-        // new model without the app needing to know about it.
-        return when (config.provider) {
-            LlmProvider.DEEPSEEK ->
-                OpenAiCompatibleClient(client, gson, apiKey,
-                    "https://api.deepseek.com/chat/completions", model, config.maxTokens)
-            LlmProvider.CHATGPT ->
-                OpenAiCompatibleClient(client, gson, apiKey,
-                    "https://api.openai.com/v1/chat/completions", model, config.maxTokens)
-            LlmProvider.GEMINI ->
-                GeminiClient(client, gson, apiKey,
-                    "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, config.maxTokens)
-            LlmProvider.CLAUDE ->
-                ClaudeClient(client, gson, apiKey,
-                    "https://api.anthropic.com/v1/messages", model, config.maxTokens)
+    private fun createLlmClient(): LlmClient =
+        buildClient(config.provider, config.modelName, apiKey, config.maxTokens)
+
+    /**
+     * Switched on the provider rather than the model's prefix: the URL and payload format are a
+     * property of the vendor, not of the model name, which is exactly why a user can add a new
+     * model without the app needing to know about it.
+     *
+     * Takes everything as arguments rather than reading [config], so the connection test can build
+     * a client for settings the user has typed but not yet saved without disturbing the live one.
+     */
+    private fun buildClient(
+        provider: LlmProvider, model: String, key: String, maxTokens: Int
+    ): LlmClient = when (provider) {
+        LlmProvider.DEEPSEEK ->
+            OpenAiCompatibleClient(client, gson, key,
+                "https://api.deepseek.com/chat/completions", model, maxTokens)
+        LlmProvider.CHATGPT ->
+            OpenAiCompatibleClient(client, gson, key,
+                "https://api.openai.com/v1/chat/completions", model, maxTokens)
+        LlmProvider.GEMINI ->
+            GeminiClient(client, gson, key,
+                "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, maxTokens)
+        LlmProvider.CLAUDE ->
+            ClaudeClient(client, gson, key,
+                "https://api.anthropic.com/v1/messages", model, maxTokens)
+    }
+
+    /** Outcome of [testConnection]. */
+    sealed class ConnectionTest {
+        data class Success(val reply: String, val millis: Long) : ConnectionTest()
+        data class Failure(val reason: String) : ConnectionTest()
+    }
+
+    /**
+     * One real round trip to the configured provider, reporting what came back.
+     *
+     * Separate from [translateText] on purpose. That one swallows every exception and substitutes
+     * "Translation failed", which is the right behaviour mid-game — a failed block shouldn't take
+     * the overlay down — but it destroys exactly the information a connectivity check exists to
+     * show. Here the provider's own message (401, unknown model, unreachable host) is the result.
+     *
+     * Everything is passed in rather than read from preferences so the test runs against what is
+     * on screen right now: the point is to check a key or a model *before* committing to it.
+     */
+    suspend fun testConnection(
+        provider: LlmProvider,
+        model: String,
+        key: String,
+        maxTokens: Int,
+        sample: String,
+        sourceLanguage: String,
+        targetLanguage: String,
+        systemPrompt: String,
+        userPrompt: String
+    ): ConnectionTest = withContext(Dispatchers.IO) {
+        val started = System.currentTimeMillis()
+        try {
+            val prompt = userPrompt
+                .replace("{source}", sourceLanguage)
+                .replace("{target}", targetLanguage)
+                .replace("{text}", sample)
+            // Not run through parseTranslationResult: that falls back to the original text on a
+            // parse miss, which would report success for a setup that is actually broken. The
+            // markers are only stripped off the front, so a reply that came back wrong still shows
+            // as wrong.
+            val reply = stripBlockMarkers(
+                buildClient(provider, model, key, maxTokens).translate(systemPrompt, prompt)
+            )
+            if (reply.isEmpty()) {
+                ConnectionTest.Failure("Empty response")
+            } else {
+                ConnectionTest.Success(reply, System.currentTimeMillis() - started)
+            }
+        } catch (e: Exception) {
+            ConnectionTest.Failure(e.message ?: e.javaClass.simpleName)
         }
     }
 
@@ -193,6 +254,19 @@ class TranslationService private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * Drops the `BLOCK_xxx:` tag from the front of each line.
+     *
+     * The user prompt tells the model to echo those tags — that is how [parseTranslationResult]
+     * puts a translation back on the box it came from. The connection test has no boxes to match,
+     * so the tag is just protocol noise in front of the one thing the card is there to show.
+     */
+    private fun stripBlockMarkers(text: String): String =
+        text.lineSequence()
+            .map { it.replace(BLOCK_MARKER, "") }
+            .joinToString("\n")
+            .trim()
+
     // Create prompt for LLM translation
     private fun createTranslationPrompt(text: String, sourceLanguage: String, targetLanguage: String): String {
         return config.userPrompt
@@ -257,7 +331,8 @@ class TranslationService private constructor(private val context: Context) {
                     translatedText = translation,
                     boundingBox = block.boundingBox,
                     sourceLanguage = config.sourceLanguage,
-                    targetLanguage = config.targetLanguage
+                    targetLanguage = config.targetLanguage,
+                    lineHeight = block.lineHeight
                 )
             )
         }
@@ -291,6 +366,9 @@ class TranslationService private constructor(private val context: Context) {
         val boundingBox: android.graphics.Rect,
         val sourceLanguage: String,
         val targetLanguage: String,
-        val bgColor: Int = 0   // sampled original background colour (0 = unknown / use configured)
+        val bgColor: Int = 0,  // sampled original background colour (0 = unknown / use configured)
+        // Carried through from OCRProcessor.TextBlock; see it for why this is not the bounding
+        // box's height. 0 when unknown.
+        val lineHeight: Int = 0
     )
 }

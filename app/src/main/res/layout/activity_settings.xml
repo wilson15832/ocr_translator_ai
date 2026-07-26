@@ -120,6 +120,57 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
+                <!-- ===== Connection test: mirrors the Overlay preview card, but this one
+                     actually calls the provider ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:layout_marginTop="18dp"
+                    android:text="@string/connection_test_section" />
+
+                <LinearLayout
+                    android:id="@+id/connectionTestCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
+                    android:background="@drawable/bg_overlay_preview"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/textTestSource"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="#8CFFFFFF"
+                        android:textSize="14sp"
+                        tools:text="The quick brown fox jumps over the lazy dog." />
+
+                    <TextView
+                        android:id="@+id/textTestResult"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/connection_test_idle"
+                        android:textColor="#FFFFFFFF"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/btnTestConnection"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="14dp"
+                        android:background="@drawable/bg_action_button"
+                        android:paddingStart="18dp"
+                        android:paddingTop="8dp"
+                        android:paddingEnd="18dp"
+                        android:paddingBottom="8dp"
+                        android:text="@string/connection_test_run"
+                        android:textColor="?attr/colorOnPrimary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
                 <!-- ===== LLM API ===== -->
                 <TextView
                     style="@style/IosGroupHeader"
@@ -517,6 +568,23 @@
                         app:srTitle="@string/merge_overlap_boxes" />
 
                     <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/switchMergeAdjacent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srAccessory="toggle"
+                        app:srSubtitle="@string/merge_adjacent_boxes_hint"
+                        app:srTitle="@string/merge_adjacent_boxes" />
+
+                    <com.example.ocr_translation.ui.SettingsSliderRow
+                        android:id="@+id/sliderMergeAdjacentGap"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:ssFrom="0"
+                        app:ssStep="1"
+                        app:ssTitle="@string/merge_adjacent_gap"
+                        app:ssTo="20" />
+
+                    <com.example.ocr_translation.ui.SettingsRow
                         android:id="@+id/switchAlternativeStyle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -628,13 +696,6 @@
                         app:ssStep="0.05"
                         app:ssTitle="@string/control_panel_opacity"
                         app:ssTo="1.0" />
-
-                    <com.example.ocr_translation.ui.SettingsRow
-                        android:id="@+id/rowFoldFavorite"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        app:srAccessory="chevron"
-                        app:srTitle="@string/fold_favorite" />
                 </com.example.ocr_translation.ui.SettingsGroup>
 
                 <!-- ===== Save translations to file ===== -->
@@ -667,29 +728,6 @@
                     android:text="@string/save_to_file_hint" />
 
                 <!-- ===== Custom font ===== -->
-                <TextView
-                    style="@style/IosGroupHeader"
-                    android:text="@string/custom_font_section" />
-
-                <com.example.ocr_translation.ui.SettingsGroup
-                    style="@style/IosGroup"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp">
-
-                    <com.example.ocr_translation.ui.SettingsRow
-                        android:id="@+id/btnLoadCustomFont"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        app:srAccessory="chevron"
-                        app:srTitle="@string/custom_font_load" />
-
-                    <com.example.ocr_translation.ui.SettingsRow
-                        android:id="@+id/btnClearCustomFont"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        app:srRole="destructive"
-                        app:srTitle="@string/custom_font_clear" />
-                </com.example.ocr_translation.ui.SettingsGroup>
             </LinearLayout>
 
             <!-- ===== Reset, in destructive red at the bottom ===== -->

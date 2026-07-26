@@ -49,6 +49,10 @@ class ControlWheel @JvmOverloads constructor(
         // Was FOLD; the wheel now folds itself after an idle timeout, so the manual action is
         // the one thing that couldn't be automatic — parking against the screen edge (design 4a).
         DOCK(R.drawable.ic_dock_edge, R.string.control_panel_dock),
+        // Sits before CLOSE so the destructive action stays at the far end. That shifts CLOSE's
+        // ordinal, and `wheelFocus` persists ordinals — so anyone who had CLOSE armed comes back
+        // with this armed instead. Harmless in that direction; the reverse would not have been.
+        MERGE_COVERS(R.drawable.ic_merge_covers, R.string.merge_covers),
         CLOSE(R.drawable.ic_close, R.string.close_translation)
     }
 
@@ -66,6 +70,13 @@ class ControlWheel @JvmOverloads constructor(
     /** Names the armed action while the user is cycling; hidden the rest of the time. */
     var onLabel: ((CharSequence?) -> Unit)? = null
 
+    /**
+     * Fired when the strip folds or unfolds. The window wraps this view exactly, so collapsing it
+     * changes the window's size — and since the window is anchored by an edge, not by its middle,
+     * the armed glyph would slide towards that edge. The owner uses this to put it back.
+     */
+    var onFoldChanged: ((folded: Boolean) -> Unit)? = null
+
 
     private val prevGhost = ImageView(context)
     private val nextGhost = ImageView(context)
@@ -80,6 +91,7 @@ class ControlWheel @JvmOverloads constructor(
     private var focusIndex = 0
     private var folded = false
     private var autoRunning = false
+    private var mergeCovers = false
     private var panelColor = Color.TRANSPARENT
     private var lifted = false
     private var sizeScale = 1f
@@ -183,6 +195,15 @@ class ControlWheel @JvmOverloads constructor(
     }
 
     /**
+     * Merged-covers state, so the glyph can show what a tap would do rather than a fixed icon.
+     * Kept in sync from the service, which owns the preference — Settings can change it too.
+     */
+    fun setMergeCovers(on: Boolean) {
+        mergeCovers = on
+        refresh()
+    }
+
+    /**
      * Restores the `Panel background` / `Panel opacity` preferences, as a capsule behind the whole
      * strip rather than behind the focused glyph alone — over a white scene it's all three icons
      * that stop being readable, not just the centre one. Pass a fully transparent colour to get
@@ -208,9 +229,8 @@ class ControlWheel @JvmOverloads constructor(
         background = if (!visible && !lifted) {
             null
         } else {
-            GradientDrawable().apply {
+            glassPane(if (visible) panelColor else Color.TRANSPARENT).apply {
                 cornerRadius = sdp(CORNER_RADIUS_DP).toFloat()
-                setColor(if (visible) panelColor else Color.TRANSPARENT)
                 if (lifted) {
                     setStroke(dp(2), AppTheme.colorPrimary(context))
                 } else {
@@ -220,11 +240,48 @@ class ControlWheel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * The panel fill as a pane of frosted glass rather than a flat rectangle of colour.
+     *
+     * Painted, not sampled. Real frosted glass means blurring what is behind the window, and the
+     * only API for that — `FLAG_BLUR_BEHIND` — blurs the whole window rectangle, which cannot be
+     * clipped to these rounded corners; it also wants Android 12 and gets switched off globally by
+     * battery saver. What actually sells glass at this size is the lighting, not the blur: a sheen
+     * along the top edge fading out by a third of the way down, and a slightly denser foot. Those
+     * follow the corner radius for free, cost nothing per frame, and look the same on every
+     * device.
+     *
+     * Alpha is left as the user set it, since here it is still the only thing keeping the glyphs
+     * legible over a bright scene.
+     */
+    private fun glassPane(color: Int): GradientDrawable {
+        if (Color.alpha(color) == 0) return GradientDrawable().apply { setColor(color) }
+        val sheen = shift(color, Color.WHITE, SHEEN_STRENGTH)
+        val foot = shift(color, Color.BLACK, FOOT_STRENGTH)
+        // Four stops rather than three: the repeated body colour holds the sheen to the top third,
+        // where a light source would actually catch the edge. Spread evenly it reads as a gradient
+        // fill instead.
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(sheen, color, color, foot)
+        )
+    }
+
+    /** Moves [base] towards [towards] by [amount], keeping its alpha. */
+    private fun shift(base: Int, towards: Int, amount: Float): Int = Color.argb(
+        Color.alpha(base),
+        Color.red(base) + ((Color.red(towards) - Color.red(base)) * amount).toInt(),
+        Color.green(base) + ((Color.green(towards) - Color.green(base)) * amount).toInt(),
+        Color.blue(base) + ((Color.blue(towards) - Color.blue(base)) * amount).toInt()
+    )
+
     /** Folded: just the armed icon, no ghosts and no chevrons. */
     fun setFolded(value: Boolean) {
+        if (folded == value) return
         folded = value
         refresh()
         if (value) handler.removeCallbacks(autoFold) else armAutoFold()
+        onFoldChanged?.invoke(value)
     }
 
     /**
@@ -244,16 +301,22 @@ class ControlWheel @JvmOverloads constructor(
      *   animates: the three glyphs enter from the side they conceptually came from and settle,
      *   so the strip reads as having scrolled by one notch rather than the icons simply swapping.
      */
+    /**
+     * The glyph an action currently shows. The two toggles swap theirs for the opposite state's,
+     * so what you see is what the tap does — the ghosts get the same treatment, since an icon that
+     * changed as it slid into the centre would read as the wheel having moved somewhere else.
+     */
+    private fun glyphFor(action: Action): Int = when {
+        action == Action.AUTO && autoRunning -> R.drawable.ic_pause
+        action == Action.MERGE_COVERS && mergeCovers -> R.drawable.ic_split_covers
+        else -> action.iconRes
+    }
+
     private fun refresh(slideSign: Int = 0) {
         val current = Action.entries[focusIndex]
-        focusIcon.setImageDrawable(
-            shadowed(
-                // Auto is a toggle, so its glyph reports the state rather than the action.
-                if (current == Action.AUTO && autoRunning) R.drawable.ic_pause else current.iconRes
-            )
-        )
-        prevGhost.setImageDrawable(shadowed(Action.entries[wrap(focusIndex - 1)].iconRes))
-        nextGhost.setImageDrawable(shadowed(Action.entries[wrap(focusIndex + 1)].iconRes))
+        focusIcon.setImageDrawable(shadowed(glyphFor(current)))
+        prevGhost.setImageDrawable(shadowed(glyphFor(Action.entries[wrap(focusIndex - 1)])))
+        nextGhost.setImageDrawable(shadowed(glyphFor(Action.entries[wrap(focusIndex + 1)])))
 
         focusSlot.background = if (autoRunning) {
             GradientDrawable().apply {
@@ -281,15 +344,19 @@ class ControlWheel @JvmOverloads constructor(
      * Folded, it tightens to a ring around the single armed glyph — a circle, not a tall pill.
      * Unfolded it only needs enough slack along the strip for a sliding glyph to travel through
      * without the WRAP_CONTENT overlay window clipping it.
+     *
+     * The folded inset is the same one the strip already carried across its width, on all four
+     * sides. A larger one made the bar *wider* as it collapsed: the strip's width is the focus slot
+     * plus its across padding either way, so any folded inset above that adds to it — the fold read
+     * as the bar growing rather than shrinking.
      */
     private fun applyPadding() {
+        val along = sdp(PADDING_ALONG_DP)
+        val across = sdp(PADDING_ACROSS_DP)
         if (folded) {
-            val p = sdp(5)
-            setPadding(p, p, p, p)
+            setPadding(across, across, across, across)
             return
         }
-        val along = sdp(8)
-        val across = sdp(2)
         if (orientation == VERTICAL) setPadding(across, along, across, along)
         else setPadding(along, across, along, across)
     }
@@ -489,8 +556,21 @@ class ControlWheel @JvmOverloads constructor(
         const val SLIDE_MS = 190L
         /** Idle time before the wheel collapses to its armed glyph. */
         const val AUTO_FOLD_MS = 5_000L
+        /**
+         * Inset around the glyphs, and so the size of the backing capsule — the background fills
+         * the view including its padding, and the glyphs' own dimensions are fixed. `along` runs
+         * with the strip and also has to leave a sliding glyph room to travel through without the
+         * WRAP_CONTENT window clipping it; `across` sets the width (and, folded, all four sides).
+         * Both are scaled by the size preference.
+         */
+        const val PADDING_ALONG_DP = 12
+        const val PADDING_ACROSS_DP = 6
+
         /** Rounded-rectangle corner; large enough to read as soft, small enough not to be a pill. */
         const val CORNER_RADIUS_DP = 18
+        /** How far the top edge is lifted towards white, and the foot pushed towards black. */
+        const val SHEEN_STRENGTH = 0.28f
+        const val FOOT_STRENGTH = 0.12f
         const val GHOST_ALPHA = 0.3f
         val SHADOW_TINT = Color.parseColor("#D9000000")
         val CHEVRON_TINT = Color.parseColor("#38FFFFFF")
