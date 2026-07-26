@@ -21,6 +21,7 @@ import java.util.Locale
 import com.example.ocr_translation.TranslationService.TranslatedBlock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import android.app.Notification
 import android.app.NotificationChannel
@@ -53,7 +54,12 @@ class ScreenCaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
-    private val serviceScope = CoroutineScope(Dispatchers.IO)
+    // SupervisorJob: without one, CoroutineScope() supplies a plain Job, and a plain Job is
+    // cancelled by any child that fails. That would take the scope with it — the capture loop
+    // stops, every later launch is a no-op, and nothing says so: the service stays in the
+    // foreground with its notification up and simply never translates again. Failures should stay
+    // with the coroutine that had them.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var translationService: TranslationService
     private lateinit var translationCache: TranslationCache
 

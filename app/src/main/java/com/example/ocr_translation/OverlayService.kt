@@ -261,25 +261,9 @@ class OverlayService : Service() {
         private const val TEXT_PROBE_PX = 100f
         private const val MIN_TEXT_SP = 8f
         private const val MAX_TEXT_SP = 48f
-        /** Blocks shorter than this share of the group's body height are treated as furigana. */
-        private const val FURIGANA_RATIO = 0.6f
-        /** Where in a group's sorted line heights the body text's own height is read off. */
-        private const val BODY_HEIGHT_PERCENTILE = 0.75f
-        /**
-         * How far one line's box may exceed the group's body height before it stops being read as
-         * that line's size. Punctuation that reaches past the kana — 「（）」, 「───」 — inflates the
-         * box without changing the type, and it is always a lone outlier among lines that agree.
-         */
-        private const val HEIGHT_OUTLIER_MAX = 1.1f
         /** Characters of extra width, so the original's trailing glyphs stay covered. */
         private const val WIDTH_SLACK_CHARS = 2f
-        /**
-         * Ceiling on a line's slot, as a multiple of that line's own height. Leading is a fraction
-         * of the glyph height, never a multiple of it, so anything past this is the gap below the
-         * line rather than the line — fitting to it is what makes a stray line come out several
-         * times too big.
-         */
-        private const val SLOT_MAX_OVER_HEIGHT = 1.6f
+        // The sizing and spacing constants live in LineMetrics, with the arithmetic they govern.
 
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
         private val mainHandler = Handler(Looper.getMainLooper())
@@ -1313,115 +1297,26 @@ class OverlayService : Service() {
     /**
      * The group's body lines — everything that isn't furigana.
      *
-     * Ruby text is reliably much shorter than what it annotates, so a body-height reference gives a
-     * threshold without needing to know which script is involved.
-     *
-     * That reference used to be the group's tallest block, which a single line can poison. An OCR
-     * line box is only as tall as the ink in it, and full-width brackets and long dashes reach well
-     * past the kana around them — one 「（）」 or 「───」 and the line comes back half again as tall
-     * as its neighbours. The threshold rises with it and a perfectly ordinary short line gets
-     * discarded as ruby, which then leaves a line-sized hole in the middle of the paragraph for
-     * [slotPitch] to measure across.
+     * The reference height used to be the group's tallest block, which a single line can poison: an
+     * OCR line box is only as tall as the ink in it, and full-width brackets and long dashes reach
+     * well past the kana around them. The threshold rose with such a line and a perfectly ordinary
+     * short one got discarded as ruby, leaving a line-sized hole mid-paragraph for the pitch to
+     * measure across. See [LineMetrics.bodyHeight].
      */
     private fun bodyLines(
         group: List<TranslationService.TranslatedBlock>
     ): List<TranslationService.TranslatedBlock> {
         val reference = bodyHeight(group)
-        return group.filter { it.lineH >= reference * FURIGANA_RATIO }
+        return group.filterNot { LineMetrics.isFurigana(it.lineH, reference) }
             .ifEmpty { group }
     }
 
-    /**
-     * Representative height of the *body* text in a group, robust at both ends.
-     *
-     * The upper quartile rather than the max or the median: the max is one bracket away from being
-     * wrong, and the median sits between the two sizes when a group is half ruby. At three quarters
-     * of the way up, a lone inflated box is still an outlier while ruby — never more than about
-     * half the lines — stays below it.
-     */
     private fun bodyHeight(group: List<TranslationService.TranslatedBlock>): Int =
-        percentile(group.map { it.lineH }, BODY_HEIGHT_PERCENTILE).coerceAtLeast(1)
+        LineMetrics.bodyHeight(group.map { it.lineH })
 
-    /** The value [fraction] of the way through [values] in sorted order; 0.5 is the median. */
-    private fun percentile(values: List<Int>, fraction: Float): Int {
-        if (values.isEmpty()) return 0
-        val sorted = values.sorted()
-        val index = Math.round((sorted.size - 1) * fraction).coerceIn(sorted.indices)
-        return sorted[index]
-    }
-
-    /**
-     * The vertical slot every line in a group gets: one figure for the whole group, derived from
-     * its typography rather than from any single line's box.
-     *
-     * No individual rect is trustworthy enough to size a line from. An OCR box bounds the ink, and
-     * Japanese punctuation reaches past the kana around it — a line carrying 「（）」 or 「───」 comes
-     * back both taller than its neighbours *and* with its top pushed up above them, so its height
-     * is wrong, and so is the distance from its top to the next line's. Measuring a line against
-     * itself has no way out of that; measuring it against the paragraph does, because a paragraph
-     * is set at one size and one leading by definition, and both statistics used here survive one
-     * bad member.
-     *
-     * Lines that genuinely differ in size are already in different groups — [related] splits on the
-     * gap between them, so a title, its reading and a class line come through as three groups of
-     * one and keep their own sizes. Within a group, a shared slot is not a compromise, it is what
-     * the original does.
-     *
-     * Bounded by the group's body height: the median gap can still be stretched if the grouping
-     * reached across a blank line, and leading is a fraction of the glyph height, never a multiple.
-     */
-    private fun lineSlot(body: List<TranslationService.TranslatedBlock>): Int {
-        val height = bodyHeight(body)
-        return typicalPitch(body)
-            .coerceIn(height, (height * SLOT_MAX_OVER_HEIGHT).toInt().coerceAtLeast(height))
-    }
-
-    /**
-     * Representative line height for a group: the median, so one unusually tall OCR box doesn't
-     * drag the whole paragraph's size with it.
-     */
-    private fun typicalHeight(group: List<TranslationService.TranslatedBlock>): Int =
-        median(group.map { it.lineH }).coerceAtLeast(1)
-
-    /**
-     * True median. `sorted[size / 2]` — which this used to be — returns the *upper* of the two
-     * middle samples on an even-sized list, so a two-line group took the larger of its two
-     * measurements every time. That biased pitch upward, and an inflated pitch inflates both the
-     * font and the box: a three-block group measuring gaps of 50 and 35 came out at 50 instead
-     * of 42, ~11% taller than the paragraph around it.
-     */
-    private fun median(values: List<Int>): Int {
-        if (values.isEmpty()) return 0
-        val sorted = values.sorted()
-        val mid = sorted.size / 2
-        return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2
-    }
-
-    /**
-     * Line pitch — the distance from one line's top to the next's — which is what a box has to
-     * be to tile the original exactly.
-     *
-     * Sizing boxes to the OCR height instead was the source of the drift: an OCR box hugs its
-     * glyphs, so it is shorter than the pitch by the line spacing. Fitting to the height meant
-     * every box was that spacing too short to reach its neighbour (a visible stripe of original
-     * between covers) while the padding needed to hide the glyph glow simultaneously pushed the
-     * box past the next line's top, so the overlap pass shoved it down — and that shove
-     * accumulated line after line.
-     *
-     * With the box exactly one pitch tall and anchored one padding above its OCR top, consecutive
-     * boxes meet edge to edge: no stripe, and nothing for the overlap pass to resolve.
-     */
-    private fun typicalPitch(group: List<TranslationService.TranslatedBlock>): Int {
-        // Against the body height rather than the median of all heights: the median moves with a
-        // bracket-inflated box, and a single-line group is sized entirely by this fallback.
-        val bodyH = bodyHeight(group)
-        val fallback = (bodyH * 1.25f).toInt()
-        val tops = group.map { it.boundingBox.top }.sorted()
-        if (tops.size < 2) return fallback
-        val gaps = tops.zipWithNext { a, b -> b - a }.filter { it > 0 }
-        if (gaps.isEmpty()) return fallback
-        return median(gaps).coerceAtLeast(bodyH)
-    }
+    /** One slot for the whole group; see [LineMetrics.lineSlot] for why it isn't per line. */
+    private fun lineSlot(body: List<TranslationService.TranslatedBlock>): Int =
+        LineMetrics.lineSlot(body.map { it.boundingBox.top }, body.map { it.lineH })
 
     /**
      * Text size that renders one line exactly as tall as the OCR box it replaces.
@@ -1507,16 +1402,10 @@ class OverlayService : Service() {
      * and a group figure renders all three at one size, which is the one thing that is unmistakably
      * wrong when you look at it.
      *
-     * So the size comes from the line and the cap makes that safe. The cap is now a backstop rather
-     * than the main defence — [lineH] measures across the quad, which is what the skewed bounding
-     * box was inflating — but a line still only has to be an outlier against neighbours that agree
-     * with each other for it to apply, while a title genuinely larger than the lines under it *is*
-     * the top of the group, so the body height sits at its own size and it passes through untouched.
+     * So the size comes from the line, and [LineMetrics.inkHeight]'s cap makes that safe.
      */
     private fun inkHeight(block: TranslationService.TranslatedBlock, bodyH: Int): Int =
-        block.lineH
-            .coerceAtMost((bodyH * HEIGHT_OUTLIER_MAX).toInt())
-            .coerceAtLeast(1)
+        LineMetrics.inkHeight(block.lineH, bodyH)
 
     /**
      * Top edge that puts a [boxHeight]-tall cover's centre on [source]'s centre.
