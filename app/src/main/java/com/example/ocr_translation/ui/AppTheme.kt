@@ -47,6 +47,19 @@ object AppTheme {
         PreferencesManager.getInstance(context).accentIndex = index.coerceIn(accents.indices)
     }
 
+    /**
+     * Context for the overlay windows, with the accent applied.
+     *
+     * A Service's own context carries no app theme, so resolving `?attr/colorPrimary` against it
+     * lands on the Material library default (a purple) rather than the user's accent. Everything
+     * the overlay draws in the accent — the wheel's auto-scan fill, the dashed scan-area frame,
+     * the area picker's primary button — has to go through this instead.
+     */
+    fun overlayContext(context: Context): Context =
+        android.view.ContextThemeWrapper(context, R.style.Theme_ScreenTranslator_Overlay).also {
+            it.theme.applyStyle(accents[selectedIndex(context)].overlayRes, true)
+        }
+
     fun colorPrimary(context: Context): Int =
         resolveAttr(context, androidx.appcompat.R.attr.colorPrimary)
 

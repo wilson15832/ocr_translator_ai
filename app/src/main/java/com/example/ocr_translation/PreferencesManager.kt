@@ -31,6 +31,7 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_CAPTURE_INTERVAL = "capture_interval"
         private const val KEY_AUTO_CAPTURE_ENABLED = "auto_capture_enabled"
         private const val KEY_ACCENT_INDEX = "accent_index"
+        private const val KEY_WHEEL_FOCUS = "wheel_focus"
         private const val KEY_TEXT_SIZE_MULTIPLIER = "text_size_multiplier"
         private const val KEY_OVERLAY_OPACITY = "overlay_opacity"
         private const val KEY_USE_ALTERNATIVE_STYLE = "use_alternative_style"
@@ -129,6 +130,15 @@ class PreferencesManager private constructor(context: Context) {
     var accentIndex: Int
         get() = prefs.getInt(KEY_ACCENT_INDEX, 0)
         set(value) = prefs.edit { putInt(KEY_ACCENT_INDEX, value) }
+
+    /**
+     * Which action the control wheel has armed, as an ordinal of
+     * [com.example.ocr_translation.ui.ControlWheel.Action]. The wheel remembers its focus between
+     * sessions; -1 means it has never been cycled, in which case [foldFavorite] seeds it.
+     */
+    var wheelFocus: Int
+        get() = prefs.getInt(KEY_WHEEL_FOCUS, -1)
+        set(value) = prefs.edit { putInt(KEY_WHEEL_FOCUS, value) }
 
     var textSizeMultiplier: Float
         get() = prefs.getFloat(KEY_TEXT_SIZE_MULTIPLIER, 1.0f)

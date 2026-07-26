@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Park against the screen edge" (design 4a): an arrow running into a wall. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M14,6l-1.41,1.41L15.17,10H2v2h13.17l-2.58,2.58L14,16l5,-5z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M20,4h2v16h-2z" />
+</vector>

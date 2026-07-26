@@ -69,6 +69,7 @@
     <string name="select_area">Select area</string>
     <string name="select_area_hint">Drag to select the area to translate</string>
     <string name="show_area_border">Show selected area border</string>
+    <string name="scan_area_tag">Scan area</string>
     <string name="translate_now">Translate now</string>
     <string name="auto_mode">Auto mode</string>
     <string name="expand_handle">Expand</string>
@@ -87,6 +88,8 @@
     <string name="collapse_controls">Less Options</string>
     <string name="text_copied_to_clipboard">Text copied to clipboard</string>
     <string name="control_panel_collapse">Collapse</string>
+    <!-- The wheel folds itself when idle, so its manual action parks it at the screen edge -->
+    <string name="control_panel_dock">Dock to edge</string>
 
     <!-- Permissions -->
     <string name="overlay_permission_title">Overlay Permission</string>
@@ -120,6 +123,9 @@
     <string name="cancel">Cancel</string>
     <string name="area_selection_instruction">Drag to select an area for translation</string>
     <string name="clear_area">Use Full Screen (Clear Area)</string>
+    <!-- Short forms for the area picker's three-button bar (design 3f) -->
+    <string name="clear_area_short">Full screen</string>
+    <string name="use_area">Use area</string>
     <string name="area_selection_title">Select Area for Translation</string>
     <string name="area_name_hint">Area name</string>
     <string name="area_save_dialog_title">Save Translation Area</string>

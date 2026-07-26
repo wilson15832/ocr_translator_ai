@@ -197,6 +197,14 @@
 
     <!-- Theme for the translation overlay. Not DayNight: the overlay sits on top of games. -->
     <style name="Theme.ScreenTranslator.Overlay" parent="Theme.MaterialComponents.NoActionBar">
+        <!--
+          Without these the overlay resolves ?attr/colorPrimary to the Material library default
+          (a purple), because a Service context carries no app theme. AppTheme.overlayContext()
+          then layers the user's accent on top.
+        -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryVariant">@color/primary_dark</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowContentOverlay">@null</item>
