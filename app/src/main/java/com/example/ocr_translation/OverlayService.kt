@@ -578,6 +578,10 @@ class OverlayService : Service() {
                     translationData.value?.let { updateOverlays(it) }
                 }
 
+                ControlWheel.Action.COPY -> copyCurrentRound()
+
+                ControlWheel.Action.OPEN_APP -> openApp()
+
                 ControlWheel.Action.DOCK -> dockControlPanel()
 
                 ControlWheel.Action.CLOSE -> {
@@ -587,6 +591,53 @@ class OverlayService : Service() {
                     stopSelf()
                 }
             }
+        }
+    }
+
+    /**
+     * Puts the round currently on screen on the clipboard: the original, then the translation.
+     *
+     * Both, because either alone is the half you didn't need — the translation to paste somewhere,
+     * the original to look a word up in a dictionary — and the pair is what makes the copy worth
+     * anything once it has left the screen it came from.
+     *
+     * Blocks are joined in reading order rather than interleaved line by line. OCR splits on
+     * layout, not on sentences, so pairing them up would read as neither language.
+     */
+    private fun copyCurrentRound() {
+        val blocks = translationData.value.orEmpty()
+        if (blocks.isEmpty()) {
+            android.widget.Toast.makeText(this, R.string.nothing_to_copy, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val original = blocks.joinToString("\n") { it.originalText }.trim()
+        val translated = blocks.joinToString("\n") { it.translatedText }.trim()
+        copyTranslationToClipboard(
+            if (original.isEmpty()) translated else "$original\n\n$translated"
+        )
+    }
+
+    /**
+     * Opens the app's own screen without touching the translation that is running.
+     *
+     * A service can only start an activity from the background under one of the platform's
+     * exemptions; this one qualifies through SYSTEM_ALERT_WINDOW, which the app already holds
+     * because it draws these overlays at all. NEW_TASK is required from a non-activity context,
+     * and the two reorder flags bring the existing instance forward instead of stacking another.
+     */
+    private fun openApp() {
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't open the app", e)
         }
     }
 

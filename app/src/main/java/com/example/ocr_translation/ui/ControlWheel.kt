@@ -41,7 +41,15 @@ class ControlWheel @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
-    /** The five actions of the old bar, in the order the wheel cycles them. Wraps at both ends. */
+    /**
+     * The actions, in the order the wheel cycles them. Wraps at both ends.
+     *
+     * Order is the whole ergonomics of this control, since reaching an action means dragging past
+     * the ones before it. The pair you use constantly — Auto and Translate — is at the near end,
+     * and destructive Close is at the far one. New actions go in front of Close, which shifts its
+     * ordinal; `wheelFocus` persists ordinals, so someone who had Close armed comes back with
+     * whatever took its number. Harmless in that direction, which is the reason for the rule.
+     */
     enum class Action(val iconRes: Int, val labelRes: Int) {
         AUTO(R.drawable.ic_start, R.string.auto_mode),
         TRANSLATE(R.drawable.ic_translate, R.string.translate_now),
@@ -49,10 +57,9 @@ class ControlWheel @JvmOverloads constructor(
         // Was FOLD; the wheel now folds itself after an idle timeout, so the manual action is
         // the one thing that couldn't be automatic — parking against the screen edge (design 4a).
         DOCK(R.drawable.ic_dock_edge, R.string.control_panel_dock),
-        // Sits before CLOSE so the destructive action stays at the far end. That shifts CLOSE's
-        // ordinal, and `wheelFocus` persists ordinals — so anyone who had CLOSE armed comes back
-        // with this armed instead. Harmless in that direction; the reverse would not have been.
         MERGE_COVERS(R.drawable.ic_merge_covers, R.string.merge_covers),
+        COPY(R.drawable.ic_copy, R.string.copy_round),
+        OPEN_APP(R.drawable.ic_open_app, R.string.open_app),
         CLOSE(R.drawable.ic_close, R.string.close_translation)
     }
 

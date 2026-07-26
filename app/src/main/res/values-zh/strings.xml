@@ -132,6 +132,9 @@
     <string name="collapse_controls">更少选项</string>
     <string name="control_panel_collapse">折叠</string>
     <string name="control_panel_dock">收起</string>
+    <string name="copy_round">复制文本</string>
+    <string name="open_app">打开应用</string>
+    <string name="nothing_to_copy">当前屏幕上还没有译文</string>
     <string name="control_panel_expand">展开</string>
     <string name="control_panel_section">控制条</string>
     <string name="control_panel_orientation">方向</string>

@@ -118,6 +118,9 @@
     <string name="control_panel_collapse">Collapse</string>
     <!-- The wheel folds itself when idle, so its manual action parks it at the screen edge -->
     <string name="control_panel_dock">Dock to edge</string>
+    <string name="copy_round">Copy text</string>
+    <string name="open_app">Open app</string>
+    <string name="nothing_to_copy">No translation on screen yet</string>
 
     <!-- Permissions -->
     <string name="overlay_permission_title">Overlay Permission</string>
