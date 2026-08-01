@@ -725,9 +725,16 @@ class ScreenCaptureService : Service() {
         val raw = captureScreen() ?: return
         val changed = fingerprintChanged(fingerprint(raw, activeTranslationArea))
         raw.recycle()
-        if (changed && skipNextChange) {   // 这是翻译后的重新基线，不是真变化
+        if (changed && skipNextChange) {
             skipNextChange = false
-            return                          // 基线已更新，不重译
+            // The re-baseline after a translation reports itself as a change, and this swallows
+            // it. But a tap during that translation advances the game, and its change arrives as
+            // the *same single* reading — so swallowing unconditionally spent the user's tap on
+            // the baseline. The screen was then quietly re-baselined to the new dialogue and sat
+            // there unchanged, and it took a second tap to produce a reading the swallow wasn't
+            // waiting for. Asking here, rather than deciding when the flag was set, also covers a
+            // tap that lands between the translation finishing and this tick.
+            if (!consumeUserInput()) return   // nothing else moved: baseline updated, don't retranslate
         }
         if (changed) {
             stableCount = 0
