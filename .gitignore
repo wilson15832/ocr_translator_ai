@@ -20,5 +20,8 @@ local.properties
 # Dev artifacts
 *.logcat
 *.apk
+# Release build output: the .apk was already ignored, but the baseline profiles and
+# output-metadata.json beside it are build products too.
+/app/release/
 /dbg/
 /fonts/
