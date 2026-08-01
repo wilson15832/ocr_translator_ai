@@ -58,6 +58,11 @@ class ControlWheel @JvmOverloads constructor(
         // the one thing that couldn't be automatic — parking against the screen edge (design 4a).
         DOCK(R.drawable.ic_dock_edge, R.string.control_panel_dock),
         MERGE_COVERS(R.drawable.ic_merge_covers, R.string.merge_covers),
+        // Adjacent, and in that order, because they are used together and against each other:
+        // overshooting by one is the normal way to find the size you wanted, and the correction
+        // should be one notch back rather than a trip around the wheel.
+        TEXT_LARGER(R.drawable.ic_text_larger, R.string.text_size_larger),
+        TEXT_SMALLER(R.drawable.ic_text_smaller, R.string.text_size_smaller),
         COPY(R.drawable.ic_copy, R.string.copy_round),
         OPEN_APP(R.drawable.ic_open_app, R.string.open_app),
         CLOSE(R.drawable.ic_close, R.string.close_translation)

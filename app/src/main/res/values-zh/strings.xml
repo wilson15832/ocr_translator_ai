@@ -132,6 +132,8 @@
     <string name="collapse_controls">更少选项</string>
     <string name="control_panel_collapse">折叠</string>
     <string name="control_panel_dock">收起</string>
+    <string name="text_size_larger">字号放大</string>
+    <string name="text_size_smaller">字号缩小</string>
     <string name="copy_round">复制文本</string>
     <string name="open_app">打开应用</string>
     <string name="nothing_to_copy">当前屏幕上还没有译文</string>

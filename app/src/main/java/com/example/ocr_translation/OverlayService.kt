@@ -280,6 +280,15 @@ class OverlayService : Service() {
         private const val WIDTH_SLACK_CHARS = 2f
         /** How far the docked sliver is taken below the panel's own background colour. */
         private const val DOCK_SLIVER_DARKEN = 0.35f
+
+        // One notch of the wheel's text-size actions. These are the Settings slider's own step and
+        // bounds — see activity_settings.xml — so both controls land on the same set of values.
+        private const val TEXT_SIZE_STEP = 0.1f
+        private const val TEXT_SIZE_MIN = 0.5f
+        private const val TEXT_SIZE_MAX = 2.0f
+
+        /** How long a fired action's readout stays up. Matches the wheel's own label linger. */
+        private const val WHEEL_LABEL_LINGER_MS = 900L
         // The sizing and spacing constants live in LineMetrics, with the arithmetic they govern.
 
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
@@ -578,6 +587,10 @@ class OverlayService : Service() {
                     translationData.value?.let { updateOverlays(it) }
                 }
 
+                ControlWheel.Action.TEXT_LARGER -> nudgeTextSize(+TEXT_SIZE_STEP)
+
+                ControlWheel.Action.TEXT_SMALLER -> nudgeTextSize(-TEXT_SIZE_STEP)
+
                 ControlWheel.Action.COPY -> copyCurrentRound()
 
                 ControlWheel.Action.OPEN_APP -> openApp()
@@ -592,6 +605,43 @@ class OverlayService : Service() {
                 }
             }
         }
+    }
+
+    /**
+     * Steps the text size preference and re-lays what's on screen at the new one.
+     *
+     * On the wheel rather than only in Settings because this is the setting you want while looking
+     * at the thing it affects — and the trip out to Settings and back costs the screen you were
+     * judging it against, since the game moves on.
+     *
+     * The step and the bounds are the Settings slider's own, so the two controls land on the same
+     * values instead of each having a private idea of what a size is.
+     */
+    private fun nudgeTextSize(delta: Float) {
+        val prefs = PreferencesManager.getInstance(this)
+        val next = (prefs.textSizeMultiplier + delta)
+            .coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX)
+        // Rounded onto the step grid: repeated float addition drifts, and the value is shown as a
+        // percentage and read back by a slider that rejects anything off-grid.
+        val snapped = Math.round(next / TEXT_SIZE_STEP) * TEXT_SIZE_STEP
+        prefs.textSizeMultiplier = snapped
+        textSizeMultiplier = snapped
+        flashWheelLabel(getString(R.string.percentage_value, Math.round(snapped * 100)))
+        translationData.value?.let { updateOverlays(it) }
+    }
+
+    private val clearWheelLabel = Runnable { showWheelLabel(null) }
+
+    /**
+     * Shows the label as a readout, then takes it away.
+     *
+     * The wheel drives its own label while cycling; this is for after firing, where the useful
+     * thing to see is the value you just changed rather than the name of what you pressed.
+     */
+    private fun flashWheelLabel(text: CharSequence) {
+        mainHandler.removeCallbacks(clearWheelLabel)
+        showWheelLabel(text)
+        mainHandler.postDelayed(clearWheelLabel, WHEEL_LABEL_LINGER_MS)
     }
 
     /**
