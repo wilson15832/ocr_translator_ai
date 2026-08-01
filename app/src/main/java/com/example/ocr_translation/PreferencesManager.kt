@@ -50,7 +50,6 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_MERGE_ADJACENT = "merge_adjacent_boxes"
         private const val KEY_MERGE_ADJACENT_GAP = "merge_adjacent_gap_dp"
         private const val KEY_CUSTOM_FONTS = "custom_fonts"
-        private const val KEY_APP_ICON = "app_icon_alias"
         private const val LEGACY_CUSTOM_FONT_PATH = "custom_font_path"
         private const val KEY_SPINNER_ALPHA = "spinner_alpha"
         private const val KEY_SPINNER_SIZE_DP = "spinner_size_dp"
@@ -266,14 +265,6 @@ class PreferencesManager private constructor(context: Context) {
     var translationFont: String
         get() = prefs.getString("translation_font", "sans-serif") ?: "sans-serif"
         set(value) = prefs.edit { putString("translation_font", value) }
-
-    /**
-     * The launcher-icon alias the user chose. See [AppIcon] — the value is the alias name, and the
-     * component's enabled state is the real record; this only remembers which row to tick.
-     */
-    var appIconAlias: String
-        get() = prefs.getString(KEY_APP_ICON, AppIcon.DEFAULT.alias) ?: AppIcon.DEFAULT.alias
-        set(value) = prefs.edit { putString(KEY_APP_ICON, value) }
 
     /** Typefaces the user loaded from files, as JSON. See [CustomFont]. */
     var customFonts: List<CustomFont>

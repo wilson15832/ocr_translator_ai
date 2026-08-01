@@ -30,16 +30,6 @@
     <string name="accent_color">主题色</string>
     <string name="accent_color_selected">已选择主题色 %1$d</string>
 
-    <!-- 应用图标：六个变体按各自的主题色命名 -->
-    <string name="app_icon">应用图标</string>
-    <string name="app_icon_original">原图标</string>
-    <string name="accent_name_blue">蓝</string>
-    <string name="accent_name_purple">紫</string>
-    <string name="accent_name_green">绿</string>
-    <string name="accent_name_orange">橙</string>
-    <string name="accent_name_pink">粉</string>
-    <string name="accent_name_graphite">石墨</string>
-
     <!--
       Value formatters. The units are user-visible, so they're translated rather than marked
       untranslatable; a Chinese UI reading "24小时" beats "24h" and still fits the value slot.

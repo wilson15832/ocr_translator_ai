@@ -84,32 +84,6 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java)
                 .putExtra(SettingsActivity.EXTRA_SECTION, SettingsActivity.SECTION_OVERLAY))
         }
-
-        binding.cardAppIcon.setOnClickListener { showAppIconPicker() }
-    }
-
-    /**
-     * Picks the launcher icon.
-     *
-     * On this screen rather than in Settings because it is the app's own appearance, next to the
-     * accent and the UI language, and because the six variants are the six accents — the point of
-     * having them is matching the icon to the theme you already chose here.
-     */
-    private fun showAppIconPicker() {
-        val prefs = PreferencesManager.getInstance(this)
-        val current = AppIcon.fromAlias(prefs.appIconAlias)
-        OptionPicker.show(
-            context = this,
-            title = getString(R.string.app_icon),
-            entries = AppIcon.entries.map { getString(it.labelRes) },
-            selectedIndex = current.ordinal
-        ) { index ->
-            val chosen = AppIcon.entries[index]
-            if (chosen == current) return@show
-            prefs.appIconAlias = chosen.alias
-            AppIcon.apply(this, chosen)
-            refreshSettingsRowValues()
-        }
     }
 
     /**
@@ -322,9 +296,6 @@ class MainActivity : AppCompatActivity() {
         binding.textOverlayValue.setText(
             if (prefs.inPlaceMode) R.string.overlay_mode_in_place else R.string.overlay_mode_merged
         )
-        val icon = AppIcon.fromAlias(prefs.appIconAlias)
-        binding.textAppIconValue.setText(icon.labelRes)
-        binding.appIconSwatch.setImageResource(icon.iconRes)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
