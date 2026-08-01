@@ -25,6 +25,15 @@
     <string name="target_language">To</string>
     <string name="permissions_info">This app requires overlay, accessibility and screen capture permissions to function properly.</string>
 
+    <!-- App icon: the six variants are named after the accents they're coloured with. -->
+    <string name="app_icon">App icon</string>
+    <string name="accent_name_blue">Blue</string>
+    <string name="accent_name_purple">Purple</string>
+    <string name="accent_name_green">Green</string>
+    <string name="accent_name_orange">Orange</string>
+    <string name="accent_name_pink">Pink</string>
+    <string name="accent_name_graphite">Graphite</string>
+
     <!-- Settings activity -->
     <string name="settings_title">Translation Settings</string>
     <string name="translation_settings">Translation Settings</string>

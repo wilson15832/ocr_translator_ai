@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Row glyph for "App icon": a rounded square, the shape the thing being chosen is. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8,3h8a5,5 0,0 1,5 5v8a5,5 0,0 1,-5 5h-8a5,5 0,0 1,-5 -5v-8a5,5 0,0 1,5 -5zM8,5a3,3 0,0 0,-3 3v8a3,3 0,0 0,3 3h8a3,3 0,0 0,3 -3v-8a3,3 0,0 0,-3 -3z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8,10h8v1.8h-8zM8,13h5v1.8h-5z" />
+</vector>

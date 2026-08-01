@@ -355,6 +355,67 @@
             android:layout_marginEnd="26dp"
             android:background="@color/home_hairline" />
 
+        <LinearLayout
+            android:id="@+id/cardAppIcon"
+            android:layout_width="match_parent"
+            android:layout_height="62dp"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="26dp"
+            android:paddingEnd="26dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_app_icon"
+                app:tint="?attr/colorPrimaryVariant" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="13dp"
+                android:layout_weight="1"
+                android:text="@string/app_icon"
+                android:textColor="@color/home_text"
+                android:textSize="16sp" />
+
+            <!-- The chosen icon's own colour, which says more at a glance than its name does -->
+            <View
+                android:id="@+id/appIconSwatch"
+                android:layout_width="14dp"
+                android:layout_height="14dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/bg_accent_dot" />
+
+            <TextView
+                android:id="@+id/textAppIconValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:textColor="@color/home_value"
+                android:textSize="14sp"
+                tools:text="Blue" />
+
+            <ImageView
+                android:layout_width="15dp"
+                android:layout_height="15dp"
+                android:layout_marginStart="6dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_small"
+                app:tint="@color/home_chevron" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="26dp"
+            android:layout_marginEnd="26dp"
+            android:background="@color/home_hairline" />
+
         <!-- Everything left over, so Start lands on the bottom edge on any screen height -->
         <Space
             android:layout_width="match_parent"

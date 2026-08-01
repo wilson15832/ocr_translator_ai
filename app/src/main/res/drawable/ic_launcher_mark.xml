@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher foreground: two lines of text inside crop brackets.
+
+  The same brackets the area picker draws, so the icon and the thing you do with the app are the
+  same shape. Everything sits inside the central 66dp the adaptive-icon mask is guaranteed to keep
+  — the 108dp canvas is cropped differently by every launcher, and only that circle is safe.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Corner brackets, arms running 13 units in from each corner of a 44-unit box. -->
+    <group>
+        <path
+            android:pathData="M32,45 L32,32 L45,32"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M63,32 L76,32 L76,45"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M76,63 L76,76 L63,76"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M45,76 L32,76 L32,63"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+    </group>
+
+    <!-- Two lines of text: a full one and a short one, as a paragraph reads. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M42,48h24a3,3 0,0 1,0 6h-24a3,3 0,0 1,0 -6z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M42,58h14a3,3 0,0 1,0 6h-14a3,3 0,0 1,0 -6z" />
+</vector>

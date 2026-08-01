@@ -22,17 +22,102 @@
         android:theme="@style/Theme.ScreenTranslator">
 
 
-        <!-- Main Activity -->
+        <!--
+          Main Activity. No LAUNCHER filter of its own: the launcher entries are all aliases below,
+          so that exactly one can be enabled at a time. Were this one of them, it would be a
+          seventh entry that couldn't be turned off without disabling the activity every alias
+          points at.
+        -->
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|locale|layoutDirection"
             android:exported="true"
-            android:theme="@style/Theme.ScreenTranslator.Home">
+            android:theme="@style/Theme.ScreenTranslator.Home" />
+
+        <!--
+          Launcher icons. One alias per icon, all pointing at MainActivity, exactly one enabled —
+          which is the only way Android lets an app change the icon it shows on the home screen.
+          Enabled state is flipped at runtime by AppIcon.apply; the one marked enabled here is what
+          a fresh install starts on. The names are persisted in preferences, so they are not free
+          to change.
+        -->
+        <activity-alias
+            android:name=".LauncherBlue"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_blue"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherPurple"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_purple"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherGreen"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_green"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherOrange"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_orange"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherPink"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_pink"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherGraphite"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_graphite"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Settings Activity -->
         <activity
