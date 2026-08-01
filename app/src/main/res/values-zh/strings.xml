@@ -116,6 +116,7 @@
     <string name="system_prompt_label">系统提示词</string>
     <string name="user_prompt_label">用户提示词（{source}、{target}、{text}）</string>
     <string name="text_copied_to_clipboard">已复制到剪贴板</string>
+    <string name="close_result_card">关闭这条译文</string>
 
     <!-- Overlay control panel -->
     <string name="pause_translation">暂停</string>

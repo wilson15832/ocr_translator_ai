@@ -2118,6 +2118,16 @@ class OverlayService : Service() {
             )
             setOnClickListener { copyTranslationToClipboard(body) }
         }, LinearLayout.LayoutParams(dp(18), dp(18)))
+        header.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_close)
+            contentDescription = getString(R.string.close_result_card)
+            imageTintList = android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#8CFFFFFF")
+            )
+            // Dismisses this result, not the translator: auto scanning carries on and the next
+            // line brings a card back. Anyone wanting it gone for good has Close on the wheel.
+            setOnClickListener { clearShownTranslationImpl() }
+        }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginStart = dp(14) })
 
         card.addView(header, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
