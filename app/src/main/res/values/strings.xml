@@ -27,6 +27,7 @@
 
     <!-- App icon: the six variants are named after the accents they're coloured with. -->
     <string name="app_icon">App icon</string>
+    <string name="app_icon_original">Original</string>
     <string name="accent_name_blue">Blue</string>
     <string name="accent_name_purple">Purple</string>
     <string name="accent_name_green">Green</string>

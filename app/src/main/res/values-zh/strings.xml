@@ -32,6 +32,7 @@
 
     <!-- 应用图标：六个变体按各自的主题色命名 -->
     <string name="app_icon">应用图标</string>
+    <string name="app_icon_original">原图标</string>
     <string name="accent_name_blue">蓝</string>
     <string name="accent_name_purple">紫</string>
     <string name="accent_name_green">绿</string>

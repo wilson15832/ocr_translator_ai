@@ -20,21 +20,26 @@ enum class AppIcon(
     /** Alias class name, relative to the package. Persisted, so these strings are not free to change. */
     val alias: String,
     val labelRes: Int,
-    /** The background colour, for the swatch beside the name in the picker. */
-    val colorRes: Int
+    /** The icon itself, shown in the row and the picker — a colour swatch can't stand in for art. */
+    val iconRes: Int
 ) {
-    BLUE(".LauncherBlue", R.string.accent_name_blue, R.color.ic_launcher_bg_blue),
-    PURPLE(".LauncherPurple", R.string.accent_name_purple, R.color.ic_launcher_bg_purple),
-    GREEN(".LauncherGreen", R.string.accent_name_green, R.color.ic_launcher_bg_green),
-    ORANGE(".LauncherOrange", R.string.accent_name_orange, R.color.ic_launcher_bg_orange),
-    PINK(".LauncherPink", R.string.accent_name_pink, R.color.ic_launcher_bg_pink),
-    GRAPHITE(".LauncherGraphite", R.string.accent_name_graphite, R.color.ic_launcher_bg_graphite);
+    /**
+     * The app's own icon, and the default. First in the list and never replaced by the generated
+     * set: the alternatives exist to be chosen, not to displace what the app already had.
+     */
+    ORIGINAL(".LauncherOriginal", R.string.app_icon_original, R.mipmap.ic_launcher),
+    BLUE(".LauncherBlue", R.string.accent_name_blue, R.mipmap.ic_launcher_blue),
+    PURPLE(".LauncherPurple", R.string.accent_name_purple, R.mipmap.ic_launcher_purple),
+    GREEN(".LauncherGreen", R.string.accent_name_green, R.mipmap.ic_launcher_green),
+    ORANGE(".LauncherOrange", R.string.accent_name_orange, R.mipmap.ic_launcher_orange),
+    PINK(".LauncherPink", R.string.accent_name_pink, R.mipmap.ic_launcher_pink),
+    GRAPHITE(".LauncherGraphite", R.string.accent_name_graphite, R.mipmap.ic_launcher_graphite);
 
     companion object {
         private const val TAG = "AppIcon"
 
         /** The one the manifest ships enabled; also what an unset or unrecognised preference means. */
-        val DEFAULT = BLUE
+        val DEFAULT = ORIGINAL
 
         fun fromAlias(alias: String?): AppIcon =
             entries.firstOrNull { it.alias == alias } ?: DEFAULT

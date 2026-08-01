@@ -324,10 +324,7 @@ class MainActivity : AppCompatActivity() {
         )
         val icon = AppIcon.fromAlias(prefs.appIconAlias)
         binding.textAppIconValue.setText(icon.labelRes)
-        binding.appIconSwatch.backgroundTintList =
-            android.content.res.ColorStateList.valueOf(
-                androidx.core.content.ContextCompat.getColor(this, icon.colorRes)
-            )
+        binding.appIconSwatch.setImageResource(icon.iconRes)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
