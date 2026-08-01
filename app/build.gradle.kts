@@ -60,13 +60,15 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.9.0")
 
-    // ML Kit for OCR
-    implementation("com.google.mlkit:text-recognition:16.0.0")
+    // ML Kit for OCR. 16.0.1 ships its .so files with 16 KB-aligned LOAD segments; 16.0.0 did
+    // not, and AGP warns about it. Nothing in the app can fix that alignment — it is a property
+    // of how the vendor's native code was linked — so the version is the fix.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
-    implementation("com.google.mlkit:text-recognition-chinese:16.0.0")
-    implementation("com.google.mlkit:text-recognition-japanese:16.0.0")
-    implementation("com.google.mlkit:text-recognition-korean:16.0.0")
-    implementation("com.google.mlkit:text-recognition-devanagari:16.0.0")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
 
     // Room for database caching
     implementation("androidx.room:room-runtime:2.6.1")
