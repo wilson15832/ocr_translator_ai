@@ -23,5 +23,7 @@ local.properties
 # Release build output: the .apk was already ignored, but the baseline profiles and
 # output-metadata.json beside it are build products too.
 /app/release/
+# Kotlin 2.x build session cache
+.kotlin/
 /dbg/
 /fonts/
