@@ -241,6 +241,14 @@ class ScreenCaptureService : Service() {
             } else {
                 Log.d(TAG, "Discarding stale translation — user tapped during it")
                 pendingOcrFingerprint = null
+                // A pass ends one of three ways — a result, no change, or discarded here — and
+                // performTranslation faded the overlay out at the start of all three. Only the
+                // first two put it back, so a tap during a translation stranded the window at
+                // alpha 0 with `faded` still set: every later pass ran, drew into an invisible
+                // window, and took fadeOutForCapture's already-faded early return. It looked like
+                // scanning had stopped, and a manual translation "fixed" it only because its own
+                // result goes through the branch above.
+                OverlayService.fadeInAfterCapture()
             }
         }
         // Start in manual mode so we don't OCR/translate the app's own UI on launch

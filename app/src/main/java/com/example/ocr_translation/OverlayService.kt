@@ -1524,6 +1524,24 @@ class OverlayService : Service() {
     private fun bodyHeight(group: List<TranslationService.TranslatedBlock>): Int =
         LineMetrics.bodyHeight(group.map { it.lineH })
 
+    /**
+     * The same ruby filtering [bodyLines] does per group, over a flat list.
+     *
+     * Grouping first is what makes it work: ruby is only short *relative to the line it annotates*,
+     * and a heading elsewhere on screen can be shorter than body text over here. Measured against
+     * the whole screen, the short lines of a small paragraph would look like ruby.
+     *
+     * Input order is preserved rather than re-sorted — for the merged card that order is the
+     * reading order the OCR returned, and it is not this function's business to second-guess it.
+     */
+    private fun withoutFurigana(
+        all: List<TranslationService.TranslatedBlock>
+    ): List<TranslationService.TranslatedBlock> {
+        if (all.size < 2) return all
+        val body = groupOverlapping(all).flatMapTo(HashSet()) { bodyLines(it) }
+        return all.filter { it in body }
+    }
+
     /** One slot for the whole group; see [LineMetrics.lineSlot] for why it isn't per line. */
     private fun lineSlot(body: List<TranslationService.TranslatedBlock>): Int =
         LineMetrics.lineSlot(body.map { it.boundingBox.top }, body.map { it.lineH })
@@ -1906,11 +1924,19 @@ class OverlayService : Service() {
         translatedViews.clear() // Clear the map as we no longer store individual views
 
         // === New Logic: Merge Translations and Create a Single Draggable Block ===
-        if (translations.isNotEmpty()) {
+        // `Translate furigana` is a rendering choice, and this is a renderer: with it off, in-place
+        // mode drops ruby per group while this path put every block into the card regardless, so
+        // the setting appeared to do nothing here. The blocks are still translated either way —
+        // the filtering that would save those tokens has to happen before the request, which is
+        // upstream of anything the overlay can see.
+        val shown =
+            if (PreferencesManager.getInstance(this).mergeOverlapBoxes) translations
+            else withoutFurigana(translations)
+        if (shown.isNotEmpty()) {
             val stringBuilder = StringBuilder()
             val combinedOriginalRect = Rect() // Optional: calculate combined bounding box if needed
 
-            for (translation in translations) {
+            for (translation in shown) {
                 stringBuilder.append(translation.translatedText).append("\n") // Combine translated text
                 // Optional: update combinedOriginalRect to encompass all block bounding boxes
                 // if (combinedOriginalRect.isEmpty) {
