@@ -289,6 +289,13 @@ class OverlayService : Service() {
 
         /** How long a fired action's readout stays up. Matches the wheel's own label linger. */
         private const val WHEEL_LABEL_LINGER_MS = 900L
+
+        /**
+         * How long a touch outside the watch window waits before being taken as the user moving
+         * the game on. Long enough for our own windows to say the touch was theirs, short enough
+         * that a real tap still clears the stale box before the screen behind it changes.
+         */
+        private const val OUTSIDE_TOUCH_GRACE_MS = 60L
         // The sizing and spacing constants live in LineMetrics, with the arithmetic they govern.
 
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
@@ -544,6 +551,7 @@ class OverlayService : Service() {
         wheel.setAutoRunning(ScreenCaptureService.autoMode)
         wheel.setMergeCovers(prefs.mergeAdjacentBoxes)
 
+        wheel.onTouched = { cancelPendingUserInput() }
         wheel.onFoldChanged = { keepWheelCentreAfterResize() }
         wheel.onFocusChanged = { action -> prefs.wheelFocus = action.ordinal }
         wheel.onLabel = { label -> showWheelLabel(label) }
@@ -787,6 +795,11 @@ class OverlayService : Service() {
         val sliver = FrameLayout(themedContext).apply {
             isClickable = true
             setOnClickListener { undockControlPanel() }
+            // The parked bar is still the bar: reaching for it isn't advancing the game.
+            setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) cancelPendingUserInput()
+                false   // let the click listener have it
+            }
         }
         sliver.addView(
             View(themedContext).apply {
@@ -1312,6 +1325,27 @@ class OverlayService : Service() {
         if (::inPlaceOverlay.isInitialized)   inPlaceOverlay.alpha = 1f
     }
 
+    /**
+     * What a touch outside our windows means: the user has moved the game on, so the shown
+     * translation is stale and the next scan should not treat the screen as unchanged.
+     */
+    private val userInputRunnable = Runnable {
+        clearInPlaceImmediately()      // hide the stale box at once, before the screen changes
+        ScreenCaptureService.onUserInput()
+    }
+
+    /**
+     * Called by anything of ours that was touched, to take back the conclusion the touch watch
+     * jumped to.
+     *
+     * Adjusting the bar is not advancing the game — and it is exactly when you are adjusting the
+     * bar that you are looking at the translation, so clearing it there loses the thing the
+     * adjustment was for.
+     */
+    private fun cancelPendingUserInput() {
+        mainHandler.removeCallbacks(userInputRunnable)
+    }
+
     // Tiny window that gets ACTION_OUTSIDE for any tap elsewhere (without consuming it),
     // so we can detect when the user advances/changes the screen — even under the box.
     private fun createTouchWatch() {
@@ -1329,8 +1363,15 @@ class OverlayService : Service() {
         }
         watch.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_OUTSIDE) {
-                clearInPlaceImmediately()      // hide stale box at once, before the screen changes
-                ScreenCaptureService.onUserInput()
+                // Deferred, not immediate: "outside" means outside this 1x1 window, so it fires
+                // for touches on our own control bar as much as for touches on the game. Anything
+                // of ours that gets touched cancels this before it runs — see
+                // [cancelPendingUserInput] — which is why the decision waits a beat instead of
+                // being made here. The alternative, testing the coordinates against the bar's
+                // rect, relies on ACTION_OUTSIDE carrying usable raw coordinates, and the order
+                // the two windows are told about one touch isn't guaranteed either way.
+                mainHandler.removeCallbacks(userInputRunnable)
+                mainHandler.postDelayed(userInputRunnable, OUTSIDE_TOUCH_GRACE_MS)
             }
             false // never consume — the tap still reaches the app underneath
         }

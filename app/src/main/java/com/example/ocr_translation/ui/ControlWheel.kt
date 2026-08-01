@@ -53,16 +53,16 @@ class ControlWheel @JvmOverloads constructor(
     enum class Action(val iconRes: Int, val labelRes: Int) {
         AUTO(R.drawable.ic_start, R.string.auto_mode),
         TRANSLATE(R.drawable.ic_translate, R.string.translate_now),
+        // Straight after Translate, because the size you want is judged against a translation you
+        // just triggered — and next to each other, because overshooting by one is the normal way
+        // to find it, so the correction should be one notch back rather than a lap of the wheel.
+        TEXT_LARGER(R.drawable.ic_text_larger, R.string.text_size_larger),
+        TEXT_SMALLER(R.drawable.ic_text_smaller, R.string.text_size_smaller),
         SELECT_AREA(R.drawable.ic_crop, R.string.select_area),
         // Was FOLD; the wheel now folds itself after an idle timeout, so the manual action is
         // the one thing that couldn't be automatic — parking against the screen edge (design 4a).
         DOCK(R.drawable.ic_dock_edge, R.string.control_panel_dock),
         MERGE_COVERS(R.drawable.ic_merge_covers, R.string.merge_covers),
-        // Adjacent, and in that order, because they are used together and against each other:
-        // overshooting by one is the normal way to find the size you wanted, and the correction
-        // should be one notch back rather than a trip around the wheel.
-        TEXT_LARGER(R.drawable.ic_text_larger, R.string.text_size_larger),
-        TEXT_SMALLER(R.drawable.ic_text_smaller, R.string.text_size_smaller),
         COPY(R.drawable.ic_copy, R.string.copy_round),
         OPEN_APP(R.drawable.ic_open_app, R.string.open_app),
         CLOSE(R.drawable.ic_close, R.string.close_translation)
@@ -70,6 +70,14 @@ class ControlWheel @JvmOverloads constructor(
 
     /** Fired when the centre is tapped. */
     var onFire: ((Action) -> Unit)? = null
+
+    /**
+     * Fired the moment a touch lands on the strip, before it is known what kind of gesture it is.
+     *
+     * The owner watches for touches outside its own windows to tell when the user has moved the
+     * game on, and this is how it learns that this one was aimed at the bar instead.
+     */
+    var onTouched: (() -> Unit)? = null
 
     /** Long-press drag: cumulative delta from where the press landed. */
     var onMoveStart: (() -> Unit)? = null
@@ -449,6 +457,7 @@ class ControlWheel @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                onTouched?.invoke()
                 downX = event.rawX
                 downY = event.rawY
                 cycleAnchor = along(event)
