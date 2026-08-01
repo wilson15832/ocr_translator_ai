@@ -215,7 +215,13 @@ class ScreenCaptureService : Service() {
             },
             onUnchanged = {
                 OverlayService.hideSpinner()
-                if (PreferencesManager.getInstance(this).inPlaceMode) OverlayService.fadeInAfterCapture()
+                // Both modes. performTranslation fades the overlay out to get a clean frame and no
+                // longer fades it back in itself — that was removed so window mode wouldn't flash
+                // the old box before the new one arrives — which leaves exactly two ways back:
+                // onResult, for a pass that produced something, and this, for one that didn't.
+                // Gated on inPlaceMode, window mode had neither, so any "text hasn't changed"
+                // outcome left the card sitting at alpha 0 for good.
+                OverlayService.fadeInAfterCapture()
             }
         ) { results ->
             OverlayService.hideSpinner()
@@ -667,9 +673,7 @@ class ScreenCaptureService : Service() {
         val frame = captureScreen()
 //        OverlayService.fadeInAfterCapture()   // view.alpha = 1f
         frame?.let { processScreenCapture(it, force) }
-        // Re-baseline against the screen now showing our box, so we detect the next real change
-        lastFingerprint = null
-        skipNextChange = true
+        reBaseline()
     }
 
     // Tiny downscaled snapshot used to detect on-screen change without hiding the overlay
@@ -887,7 +891,24 @@ class ScreenCaptureService : Service() {
     private fun enterSteady() {
         inPlaceScanning = false
         steadyEnteredAt = android.os.SystemClock.elapsedRealtime()
+        reBaseline()
+    }
+
+    /**
+     * Drops the change-detection baseline, and arms the flag that keeps the drop from being read
+     * as a change.
+     *
+     * The two belong together, because the two detectors disagree about what a missing baseline
+     * means: [fingerprintDiff], which in-place mode uses, reports no change; [fingerprintChanged],
+     * which merged mode uses, reports a change. So in merged mode every re-baseline announces
+     * itself as movement on screen, and without [skipNextChange] to swallow it the loop translates
+     * again — the self-feedback that made the box flicker once a second, fixed for
+     * [performTranslation] and never applied to [enterSteady], which is the path a manual
+     * translation leaves through.
+     */
+    private fun reBaseline() {
         lastFingerprint = null   // re-baseline against the screen now showing our box
+        skipNextChange = true
     }
 
     private fun fingerprintDiff(fp: IntArray): Double {
