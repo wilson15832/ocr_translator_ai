@@ -680,6 +680,15 @@ class ScreenCaptureService : Service() {
         kotlinx.coroutines.delay(33)
         val frame = captureScreen()
 //        OverlayService.fadeInAfterCapture()   // view.alpha = 1f
+        // The tap that advanced the game is what brought us here, and this frame already shows
+        // where it landed — so it is spent, and the flag has to say so before the swallow reads
+        // it. Left set, it made the swallow treat the cause of this translation as a second,
+        // separate change: the box appeared, a redundant pass faded it out to re-read the same
+        // text, and onUnchanged faded it back. That is the flicker.
+        //
+        // Cleared here rather than after the call: a tap arriving while the model is answering is
+        // genuinely new, and must survive to be seen.
+        consumeUserInput()
         frame?.let { processScreenCapture(it, force) }
         reBaseline()
     }
