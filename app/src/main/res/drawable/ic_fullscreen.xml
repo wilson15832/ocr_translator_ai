@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  "Use the whole screen" in the area picker: corners pointing outward, the counterpart to the crop
+  brackets that point inward. Same language, opposite direction.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,9V4h5v2H6v3zM15,4h5v5h-2V6h-3zM18,15h2v5h-5v-2h3zM6,15v3h3v2H4v-5z" />
+</vector>

@@ -962,37 +962,61 @@ class OverlayService : Service() {
                 else R.string.select_area_hint
             )
             setTextColor(Color.parseColor("#A6FFFFFF"))
-            textSize = 13f
-            gravity = Gravity.CENTER
+            textSize = 12f
+            gravity = Gravity.END
+            maxWidth = dp(236)
+            setPadding(dp(11), dp(7), dp(11), dp(7))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(11).toFloat()
+                setColor(Color.parseColor("#C7141416"))
+            }
         }
 
         // "OK / Cancel" becomes Cancel · Full screen · Use area, which finally gives the
         // clear_area string a place in the flow — previously it existed with nothing to trigger it.
-        val cancelBtn = areaButton(getString(android.R.string.cancel), primary = false)
-        val fullScreenBtn = areaButton(getString(R.string.clear_area_short), primary = false)
-        val okBtn = areaButton(getString(R.string.use_area), primary = true)
+        val cancelBtn = areaAction(R.drawable.ic_close, android.R.string.cancel, primary = false)
+        val fullScreenBtn =
+            areaAction(R.drawable.ic_fullscreen, R.string.clear_area_short, primary = false)
+        val okBtn = areaAction(R.drawable.ic_ios_check, R.string.use_area, primary = true)
 
         val buttonRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            addView(cancelBtn, LinearLayout.LayoutParams(0, dp(44), 1f))
-            addView(fullScreenBtn, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                marginStart = dp(10)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(28).toFloat()
+                setColor(Color.parseColor("#D9141416"))
+            }
+            addView(cancelBtn, LinearLayout.LayoutParams(dp(44), dp(44)))
+            addView(fullScreenBtn, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                marginStart = dp(6)
             })
-            addView(okBtn, LinearLayout.LayoutParams(0, dp(44), 1.2f).apply {
-                marginStart = dp(10)
+            addView(okBtn, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                marginStart = dp(6)
             })
         }
 
+        // Parked in the corner instead of spanning the bottom edge. The bar used to be full width
+        // and bottom-aligned, which put the whole bottom strip of the screen out of reach — and a
+        // dialogue box, the thing most worth selecting, usually sits exactly there. It hides while
+        // a drag is in progress, so what matters is only where a drag can *start*.
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#B8141416"))
-            setPadding(dp(16), dp(14), dp(16), dp(18))
-            addView(hint, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(12) })
-            addView(buttonRow, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ))
+            gravity = Gravity.END
+            addView(
+                hint,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(10) }
+            )
+            addView(
+                buttonRow,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
         }
 
         val container = FrameLayout(this).apply {
@@ -1006,10 +1030,27 @@ class OverlayService : Service() {
             addView(
                 bar,
                 FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT
-                ).apply { gravity = Gravity.BOTTOM }
+                ).apply {
+                    gravity = Gravity.BOTTOM or Gravity.END
+                    marginEnd = dp(16)
+                    bottomMargin = dp(16)
+                }
             )
+        }
+
+        // The window is LAYOUT_NO_LIMITS, so it extends under the navigation bar and a corner-
+        // parked cluster would sit on top of it — where the system takes the touches. Insets push
+        // it clear; if none arrive, the margins above are what's left.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(bar) { v, insets ->
+            val sys = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            (v.layoutParams as? FrameLayout.LayoutParams)?.let {
+                it.bottomMargin = dp(16) + sys.bottom
+                it.marginEnd = dp(16) + sys.right
+                v.requestLayout()
+            }
+            insets
         }
 
         val params = WindowManager.LayoutParams(
@@ -1054,27 +1095,36 @@ class OverlayService : Service() {
     }
 
     /** Rounded 44dp action for the area-selection bar; the primary one carries the accent. */
-    private fun areaButton(label: String, primary: Boolean): TextView = TextView(this).apply {
-        text = label
-        gravity = Gravity.CENTER
-        textSize = 16f
-        setTextColor(
-            if (primary) AppTheme.contrastOn(AppTheme.colorPrimary(themedContext))
-            else Color.WHITE
-        )
-        setTypeface(
-            typeface,
-            if (primary) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL
-        )
-        background = android.graphics.drawable.GradientDrawable().apply {
-            cornerRadius = dp(12).toFloat()
-            setColor(
-                if (primary) AppTheme.colorPrimary(themedContext)
-                else Color.parseColor("#47767680")
+    /**
+     * One action in the area picker's corner cluster: a glyph on a 44dp circle.
+     *
+     * Icons rather than the labels these replaced, because the labels are what made the bar wide
+     * enough to need the whole bottom edge. 44dp is the smallest target worth offering, so the
+     * cluster shrinks as far as it can without becoming fiddly — the glyph is 22dp inside it, and
+     * the rest is touch area.
+     *
+     * The label survives as the content description: it is what a screen reader announces, and
+     * it's the only thing left saying which of the three this is.
+     */
+    private fun areaAction(iconRes: Int, labelRes: Int, primary: Boolean): ImageView =
+        ImageView(themedContext).apply {
+            setImageResource(iconRes)
+            contentDescription = getString(labelRes)
+            val inset = dp(11)
+            setPadding(inset, inset, inset, inset)
+            imageTintList = android.content.res.ColorStateList.valueOf(
+                if (primary) AppTheme.contrastOn(AppTheme.colorPrimary(themedContext))
+                else Color.WHITE
             )
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(
+                    if (primary) AppTheme.colorPrimary(themedContext)
+                    else Color.parseColor("#3DFFFFFF")
+                )
+            }
+            isClickable = true
         }
-        isClickable = true
-    }
 
     /** Tells the capture service to go back to the full screen. */
     private fun clearTranslationArea() {
