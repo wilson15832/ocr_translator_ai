@@ -122,8 +122,6 @@
     <string name="pause_translation">暂停</string>
     <string name="close_translation">关闭</string>
     <string name="select_area">选择区域</string>
-    <string name="select_area_hint">拖动选择要翻译的区域</string>
-    <string name="select_area_hint_adjust">拖动方框可移动，拖动四角可缩放，在框外拖动则重新框选</string>
     <string name="show_area_border">显示所选区域边框</string>
     <string name="scan_area_tag">扫描区域</string>
     <string name="translate_now">手动翻译</string>

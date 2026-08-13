@@ -956,22 +956,6 @@ class OverlayService : Service() {
             ?: PreferencesManager.getInstance(this).getActiveTranslationArea()
         selector.setSelection(existing)
 
-        val hint = TextView(this).apply {
-            text = getString(
-                if (existing != null) R.string.select_area_hint_adjust
-                else R.string.select_area_hint
-            )
-            setTextColor(Color.parseColor("#A6FFFFFF"))
-            textSize = 12f
-            gravity = Gravity.END
-            maxWidth = dp(236)
-            setPadding(dp(11), dp(7), dp(11), dp(7))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = dp(11).toFloat()
-                setColor(Color.parseColor("#C7141416"))
-            }
-        }
-
         // "OK / Cancel" becomes Cancel · Full screen · Use area, which finally gives the
         // clear_area string a place in the flow — previously it existed with nothing to trigger it.
         val cancelBtn = areaAction(R.drawable.ic_close, android.R.string.cancel, primary = false)
@@ -979,7 +963,11 @@ class OverlayService : Service() {
             areaAction(R.drawable.ic_fullscreen, R.string.clear_area_short, primary = false)
         val okBtn = areaAction(R.drawable.ic_ios_check, R.string.use_area, primary = true)
 
-        val buttonRow = LinearLayout(this).apply {
+        // Parked in the corner instead of spanning the bottom edge. The bar used to be full width
+        // and bottom-aligned, which put the whole bottom strip of the screen out of reach — and a
+        // dialogue box, the thing most worth selecting, usually sits exactly there. It hides while
+        // a drag is in progress, so what matters is only where a drag can *start*.
+        val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(6), dp(6), dp(6), dp(6))
@@ -994,29 +982,6 @@ class OverlayService : Service() {
             addView(okBtn, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
                 marginStart = dp(6)
             })
-        }
-
-        // Parked in the corner instead of spanning the bottom edge. The bar used to be full width
-        // and bottom-aligned, which put the whole bottom strip of the screen out of reach — and a
-        // dialogue box, the thing most worth selecting, usually sits exactly there. It hides while
-        // a drag is in progress, so what matters is only where a drag can *start*.
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
-            addView(
-                hint,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = dp(10) }
-            )
-            addView(
-                buttonRow,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            )
         }
 
         val container = FrameLayout(this).apply {

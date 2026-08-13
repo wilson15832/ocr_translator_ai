@@ -95,8 +95,6 @@
     <string name="pause_translation">Pause</string>
     <string name="close_translation">Close</string>
     <string name="select_area">Select area</string>
-    <string name="select_area_hint">Drag to select the area to translate</string>
-    <string name="select_area_hint_adjust">Drag the box to move it, a corner to resize, or draw a new one</string>
     <string name="show_area_border">Show selected area border</string>
     <string name="scan_area_tag">Scan area</string>
     <string name="translate_now">Translate now</string>
