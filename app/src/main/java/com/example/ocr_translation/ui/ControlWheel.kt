@@ -1,7 +1,12 @@
 package com.example.ocr_translation.ui
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PathMeasure
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -10,6 +15,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -108,6 +114,33 @@ class ControlWheel @JvmOverloads constructor(
     private val handler = Handler(Looper.getMainLooper())
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
+    // ===== AUTO-SCAN INDICATOR =====
+
+    /**
+     * The glow is two strokes of the same arc rather than a BlurMaskFilter: mask filters are
+     * ignored by the hardware canvas below API 28, and this bar spends its life over a game, where
+     * a software layer is the last thing worth paying for. A wide faint stroke under a narrow
+     * bright one reads as a glow at this size.
+     */
+    private val ringGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val ringCore = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+    private val ringPath = Path()
+    private val ringMeasure = PathMeasure()
+    /** The visible arc, rebuilt into the same object each frame rather than allocated per frame. */
+    private val ringArc = Path()
+    private var ringLength = 0f
+    /** How far round the outline the arc's leading edge sits, 0..1. */
+    private var ringPhase = 0f
+    private var ringAnimator: ValueAnimator? = null
+
     private var focusIndex = 0
     private var folded = false
     private var autoRunning = false
@@ -152,12 +185,111 @@ class ControlWheel @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         armAutoFold()
+        updateRingAnimation()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         handler.removeCallbacks(autoFold)
         handler.removeCallbacks(longPress)
+        updateRingAnimation()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        buildRing(w, h)
+    }
+
+    /**
+     * The outline the light travels: the capsule's own shape, inset so the glow's width stays
+     * inside the view.
+     *
+     * It has to. The overlay window wraps this view exactly, so anything drawn past the bounds is
+     * clipped away — the same constraint that rules out an elevation shadow here.
+     */
+    private fun buildRing(w: Int, h: Int) {
+        val inset = RING_INSET_DP * resources.displayMetrics.density
+        ringPath.rewind()
+        if (w <= 0 || h <= 0) {
+            ringLength = 0f
+            return
+        }
+        val radius = (sdp(CORNER_RADIUS_DP) - inset).coerceAtLeast(0f)
+        ringPath.addRoundRect(
+            inset, inset, w - inset, h - inset, radius, radius, Path.Direction.CW
+        )
+        ringMeasure.setPath(ringPath, true)
+        ringLength = ringMeasure.length
+    }
+
+    /**
+     * Runs the light only while auto-scan is on and the bar is attached.
+     *
+     * An overlay that animates forever redraws forever, over whatever is underneath — so it stops
+     * the moment either of those stops being true, rather than idling at zero progress.
+     */
+    private fun updateRingAnimation() {
+        val shouldRun = autoRunning && isAttachedToWindow
+        if (shouldRun) {
+            if (ringAnimator != null) return
+            ringAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = RING_PERIOD_MS
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                addUpdateListener {
+                    ringPhase = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
+        } else {
+            ringAnimator?.cancel()
+            ringAnimator = null
+            invalidate()
+        }
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        if (!autoRunning) return
+        drawRunningLight(canvas)
+        drawStatusDot(canvas)
+    }
+
+    /** A short arc of the outline, at [ringPhase] of the way round. */
+    private fun drawRunningLight(canvas: Canvas) {
+        if (ringLength <= 0f) return
+        val accent = AppTheme.colorPrimary(context)
+        val density = resources.displayMetrics.density
+        ringGlow.color = (accent and 0x00FFFFFF) or (RING_GLOW_ALPHA shl 24)
+        ringGlow.strokeWidth = RING_GLOW_WIDTH_DP * density
+        ringCore.color = accent
+        ringCore.strokeWidth = RING_CORE_WIDTH_DP * density
+
+        val start = ringPhase * ringLength
+        val end = start + ringLength * RING_ARC_FRACTION
+        ringArc.rewind()
+        ringMeasure.getSegment(start, minOf(end, ringLength), ringArc, true)
+        // Wrapping past the end continues from the beginning, so the light never breaks stride.
+        if (end > ringLength) ringMeasure.getSegment(0f, end - ringLength, ringArc, true)
+        canvas.drawPath(ringArc, ringGlow)
+        canvas.drawPath(ringArc, ringCore)
+    }
+
+    /**
+     * The steady mark: small, on the top-right corner, and not where any glyph is.
+     *
+     * Placed on the corner's own arc — 45° round it — rather than at a fixed offset, so it stays
+     * attached to the edge instead of drifting into the space outside the curve when the size
+     * preference scales the capsule.
+     */
+    private fun drawStatusDot(canvas: Canvas) {
+        val corner = sdp(CORNER_RADIUS_DP).toFloat()
+        val offset = corner * (1f - 0.70710677f)
+        dotPaint.color = AppTheme.colorPrimary(context)
+        canvas.drawCircle(
+            width - offset, offset, DOT_RADIUS_DP * resources.displayMetrics.density, dotPaint
+        )
     }
 
     /**
@@ -208,9 +340,19 @@ class ControlWheel @JvmOverloads constructor(
         refresh()
     }
 
-    /** Auto-scan state. The focus slot fills with the accent, so the wheel is its own indicator. */
+    /**
+     * Auto-scan state, shown as a dot in the corner and a light travelling the capsule's edge.
+     *
+     * It used to be a filled accent disc behind the armed glyph, which read as a button rather
+     * than as a state — the one thing on the bar you press is the centre, and colouring it made
+     * the wheel look pressed. The edge and the corner are the parts nothing else is using, so the
+     * indicator can sit there without competing with the glyphs, and a moving light says "running"
+     * in a way no static fill does.
+     */
     fun setAutoRunning(running: Boolean) {
+        if (autoRunning == running) return
         autoRunning = running
+        updateRingAnimation()
         refresh()
     }
 
@@ -337,15 +479,6 @@ class ControlWheel @JvmOverloads constructor(
         focusIcon.setImageDrawable(shadowed(glyphFor(current)))
         prevGhost.setImageDrawable(shadowed(glyphFor(Action.entries[wrap(focusIndex - 1)])))
         nextGhost.setImageDrawable(shadowed(glyphFor(Action.entries[wrap(focusIndex + 1)])))
-
-        focusSlot.background = if (autoRunning) {
-            GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(AppTheme.colorPrimary(context))
-            }
-        } else {
-            null
-        }
 
         val peripheral = if (folded) View.GONE else View.VISIBLE
         prevGhost.visibility = peripheral
@@ -589,6 +722,16 @@ class ControlWheel @JvmOverloads constructor(
 
         /** Rounded-rectangle corner; large enough to read as soft, small enough not to be a pill. */
         const val CORNER_RADIUS_DP = 18
+
+        // Auto-scan indicator. The arc is a fifth of the outline: long enough to read as a
+        // travelling light rather than a dot, short enough that the capsule never looks outlined.
+        const val RING_INSET_DP = 3f
+        const val RING_ARC_FRACTION = 0.2f
+        const val RING_GLOW_WIDTH_DP = 6f
+        const val RING_CORE_WIDTH_DP = 2f
+        const val RING_GLOW_ALPHA = 0x4D
+        const val RING_PERIOD_MS = 2200L
+        const val DOT_RADIUS_DP = 3.5f
         /** How far the top edge is lifted towards white, and the foot pushed towards black. */
         const val SHEEN_STRENGTH = 0.28f
         const val FOOT_STRENGTH = 0.12f
