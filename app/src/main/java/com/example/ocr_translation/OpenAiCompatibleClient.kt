@@ -21,7 +21,18 @@ class OpenAiCompatibleClient(
     private val endpoint: String,
     private val model: String,
     private val maxTokens: Int,
-    private val extraHeaders: Map<String, String> = emptyMap()
+    private val extraHeaders: Map<String, String> = emptyMap(),
+    /**
+     * Vendor extensions to the chat-completions body, decided by the caller from [LlmProvider]
+     * rather than guessed from the model name here.
+     *
+     * The guess was `model.startsWith("deepseek")`, which only ever worked because DeepSeek's
+     * models are named after it — and it said nothing at all about the vendors that reach this
+     * client through Cloudflare's compat endpoint. Sending DeepSeek's `thinking` to Google earns a
+     * 400: `Unknown name "thinking": Cannot find field.`
+     */
+    private val reasoningEffort: String? = null,
+    private val disableThinking: Boolean = false
 ) : LlmClient {
 
     private data class Message(
@@ -68,8 +79,9 @@ class OpenAiCompatibleClient(
             model = model,
             messages = messages,
             maxTokens = maxTokens,
-            reasoningEffort = if (model.startsWith("deepseek")) null else "minimal",
-            thinking = ThinkingConfig("disabled")
+            reasoningEffort = reasoningEffort,
+            // Gson omits nulls, so an unset extension simply isn't in the body.
+            thinking = if (disableThinking) ThinkingConfig("disabled") else null
         )
         val body = gson.toJson(payload).toRequestBody("application/json".toMediaTypeOrNull())
 

@@ -144,7 +144,8 @@ class TranslationService private constructor(private val context: Context) {
         val routed = if (model.contains('/')) model else "${provider.gatewaySlug}/$model"
         return OpenAiCompatibleClient(
             client, gson, key, gateway.endpoint, routed, maxTokens,
-            mapOf("cf-aig-authorization" to "Bearer ${gateway.token}")
+            mapOf("cf-aig-authorization" to "Bearer ${gateway.token}"),
+            provider.reasoningEffort, provider.disablesThinking
         )
     }
 
@@ -153,10 +154,14 @@ class TranslationService private constructor(private val context: Context) {
     ): LlmClient = when (provider) {
         LlmProvider.DEEPSEEK ->
             OpenAiCompatibleClient(client, gson, key,
-                "https://api.deepseek.com/chat/completions", model, maxTokens)
+                "https://api.deepseek.com/chat/completions", model, maxTokens,
+                reasoningEffort = provider.reasoningEffort,
+                disableThinking = provider.disablesThinking)
         LlmProvider.CHATGPT ->
             OpenAiCompatibleClient(client, gson, key,
-                "https://api.openai.com/v1/chat/completions", model, maxTokens)
+                "https://api.openai.com/v1/chat/completions", model, maxTokens,
+                reasoningEffort = provider.reasoningEffort,
+                disableThinking = provider.disablesThinking)
         LlmProvider.GEMINI ->
             GeminiClient(client, gson, key,
                 "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent", model, maxTokens)
