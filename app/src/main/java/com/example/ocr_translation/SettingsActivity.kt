@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.text.InputType
 import android.view.View
 import android.widget.Toast
@@ -37,17 +38,31 @@ class SettingsActivity : AppCompatActivity() {
     private var currentCodes: List<String> = emptyList()   // 当前公司的模型码（save 时按下标取）
     private var currentModelNames: List<String> = emptyList()
 
+    /**
+     * Each provider's chosen model, remembered while the screen is open.
+     *
+     * Only one model is persisted — the active one, in [PreferencesManager.modelName] — but the
+     * picker shows a different list per provider, so switching provider used to reset the choice to
+     * that list's first entry, and switching back lost what you had picked. This keeps each
+     * provider's selection so a switch is a switch, not a reset.
+     */
+    private val selectedCodeByProvider = mutableMapOf<LlmProvider, String>()
+
     // The Spinners became picker rows, so the "selected position" each one used to hold for us
     // now lives here and is read back in saveSettings().
     private var modelIndex = 0
     private var textColorIndex = 0
     private var bgColorIndex = 0
     private var fontSelIndex = 0
-    private var foldSelIndex = 0
     private var panelBgColorIndex = 0
 
     /** Index in [currentCodes] where the user's own models begin. */
     private var firstCustomIndex = 0
+
+    // Same arrangement for fonts: bundled entries first, then the user's own files.
+    private var currentFontValues: List<String> = emptyList()
+    private var currentFontNames: List<String> = emptyList()
+    private var firstCustomFontIndex = 0
 
     /**
      * Built-in models for [provider], then the user's own additions for it. Custom entries are
@@ -91,6 +106,181 @@ class SettingsActivity : AppCompatActivity() {
                 binding.rowModel.value = currentModelNames.getOrNull(index)
             }
         }
+    }
+
+    /**
+     * The sample sentence for the configured source language, looked up by index the same way the
+     * model arrays are.
+     *
+     * Per-language rather than one fixed string because the test is only convincing if you can
+     * read the answer: a reply to a sentence you recognise tells you at a glance whether the model
+     * translated it, echoed it, or returned something else entirely. It also exercises the script
+     * the OCR will actually be feeding it.
+     *
+     * "auto" resolves to index 0, which carries the fallback, so no special case is needed.
+     */
+    private fun connectionTestSample(): String {
+        val codes = resources.getStringArray(R.array.language_codes)
+        val samples = resources.getStringArray(R.array.connection_test_samples)
+        val index = codes.indexOf(preferencesManager.sourceLanguage)
+        return samples.getOrNull(index) ?: samples.first()
+    }
+
+    /**
+     * The gateway as the screen currently has it, or null to test the vendor directly.
+     *
+     * Read from the views for the same reason the key and model are: the point of the test is to
+     * find out whether what you just typed works, before it is saved.
+     */
+    private fun liveGateway(): TranslationService.Gateway? {
+        if (!binding.switchCloudflareProxy.isChecked) return null
+        val account = binding.editCloudflareAccount.text.toString().trim()
+        val token = binding.editCloudflareToken.text.toString().trim()
+        if (account.isEmpty() || token.isEmpty()) return null
+        val name = binding.editCloudflareGateway.text.toString().trim()
+            .ifBlank { PreferencesManager.DEFAULT_CF_GATEWAY }
+        return TranslationService.Gateway(account, name, token)
+    }
+
+    /** Greys out the gateway's fields when the proxy is off, as the API rows do for local model. */
+    private fun applyCloudflareState(enabled: Boolean) {
+        val alpha = if (enabled) 1f else 0.4f
+        listOf(
+            binding.layoutCloudflareAccount,
+            binding.layoutCloudflareGateway,
+            binding.layoutCloudflareToken
+        ).forEach { it.isEnabled = enabled; it.alpha = alpha }
+        listOf(
+            binding.editCloudflareAccount,
+            binding.editCloudflareGateway,
+            binding.editCloudflareToken
+        ).forEach { it.isEnabled = enabled }
+        binding.btnToggleCloudflareToken.isEnabled = enabled
+    }
+
+    /**
+     * Sends one real translation request using what is currently on screen, and reports what came
+     * back — the mirror of Overlay Settings' preview card, for the half of the settings whose
+     * effect you otherwise only discover mid-game.
+     *
+     * Deliberately reads the live views rather than [preferencesManager]: the common case is
+     * pasting a key or picking a model and wanting to know whether it works *before* saving.
+     * Nothing here writes a preference, so a failed test leaves no trace.
+     */
+    private fun runConnectionTest() {
+        if (binding.switchUseLocalModel.isChecked) {
+            binding.textTestResult.text = getString(R.string.connection_test_local)
+            return
+        }
+        val provider = currentProvider
+        val model = currentCodes.getOrNull(modelIndex).orEmpty()
+        val key = binding.editApiKey.text.toString()
+        val maxTokens = binding.sliderMaxTokens.slider.value.toInt()
+        val system = binding.editSystemPrompt.text.toString()
+        val user = binding.editUserPrompt.text.toString()
+            .ifBlank { PreferencesManager.DEFAULT_USER_PROMPT }
+
+        binding.btnTestConnection.isEnabled = false
+        binding.textTestResult.text = getString(R.string.connection_test_running, provider.displayName)
+
+        lifecycleScope.launch {
+            val result = TranslationService.getInstance(this@SettingsActivity).testConnection(
+                provider = provider,
+                model = model,
+                key = key,
+                maxTokens = maxTokens,
+                sample = binding.textTestSource.text.toString(),
+                sourceLanguage = preferencesManager.sourceLanguage,
+                targetLanguage = preferencesManager.targetLanguage,
+                systemPrompt = system,
+                userPrompt = user,
+                gateway = liveGateway()
+            )
+            binding.textTestResult.text = when (result) {
+                is TranslationService.ConnectionTest.Success ->
+                    getString(R.string.connection_test_ok, result.reply, result.millis)
+                is TranslationService.ConnectionTest.Failure ->
+                    getString(R.string.connection_test_failed, result.reason)
+            }
+            binding.btnTestConnection.isEnabled = true
+        }
+    }
+
+    /**
+     * Bundled fonts, then the user's own, in the order the picker shows them.
+     *
+     * Mirrors [populateModels]. The two lists are rebuilt rather than cached because loading or
+     * removing a font changes them under an open screen.
+     */
+    private fun populateFonts(selectValue: String? = null) {
+        val names = resources.getStringArray(R.array.font_options)
+        val values = resources.getStringArray(R.array.font_values)
+        val custom = preferencesManager.customFonts
+        currentFontValues = values.toList() + custom.map { it.token }
+        currentFontNames = names.toList() + custom.map { it.name }
+        firstCustomFontIndex = values.size
+
+        val target = selectValue ?: currentFontValues.getOrNull(fontSelIndex)
+        fontSelIndex = currentFontValues.indexOf(target).takeIf { it >= 0 } ?: 0
+        binding.rowFont.value = currentFontNames.getOrNull(fontSelIndex)
+    }
+
+    /**
+     * Font picker with a "Load font…" row appended, and a remove action on the user's own entries —
+     * the same shape as the model picker, and for the same reason: adding one is part of choosing
+     * one, so it belongs in the list rather than in a separate pair of rows beneath it.
+     */
+    private fun showFontPicker() {
+        val options = currentFontNames + getString(R.string.custom_font_load)
+        OptionPicker.show(
+            context = this,
+            title = getString(R.string.font_style),
+            entries = options,
+            selectedIndex = fontSelIndex,
+            secondaryFor = { index -> index in firstCustomFontIndex until currentFontNames.size },
+            onSecondary = { index -> confirmRemoveFont(index) }
+        ) { index ->
+            if (index == options.lastIndex) {
+                launchFontPicker()
+            } else {
+                fontSelIndex = index
+                binding.rowFont.value = currentFontNames.getOrNull(index)
+                refreshPreview()
+            }
+        }
+    }
+
+    private fun launchFontPicker() {
+        try {
+            // Any file: the system picker doesn't reliably filter by .ttf/.otf, so the real check
+            // is trying to load the typeface after the copy.
+            pickCustomFont.launch(arrayOf("font/*", "application/octet-stream", "*/*"))
+        } catch (e: Exception) {
+            Log.e(TAG, "OpenDocument launch failed", e)
+            Toast.makeText(this, "File picker unavailable", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Removes a user font: its file, its entry, and the selection if it was the one selected. */
+    private fun confirmRemoveFont(index: Int) {
+        val font = preferencesManager.customFonts.getOrNull(index - firstCustomFontIndex) ?: return
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(getString(R.string.custom_font_remove_title, font.name))
+            .setPositiveButton(R.string.remove_model_action) { _, _ ->
+                try { font.file(this).delete() } catch (_: Exception) {}
+                // Compared by fileName: the getter re-parses its JSON on every read, so the
+                // instances it hands back are never the same object twice.
+                preferencesManager.customFonts =
+                    preferencesManager.customFonts.filterNot { it.fileName == font.fileName }
+                val wasSelected = currentFontValues.getOrNull(fontSelIndex) == font.token
+                populateFonts(if (wasSelected) currentFontValues.firstOrNull() else null)
+                refreshPreview()
+                Toast.makeText(
+                    this, getString(R.string.remove_model_done, font.name), Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /** The custom model behind a picker row, or null if that row is a built-in. */
@@ -162,7 +352,6 @@ class SettingsActivity : AppCompatActivity() {
         const val SECTION_TRANSLATION = "translation"
         const val SECTION_OVERLAY = "overlay"
         // File name inside filesDir/ where we keep the user-loaded font.
-        private const val CUSTOM_FONT_FILENAME = "custom_font.ttf"
     }
 
 
@@ -199,13 +388,16 @@ class SettingsActivity : AppCompatActivity() {
         ) { uri ->
             if (uri == null) return@registerForActivityResult
             lifecycleScope.launch {
-                val ok = copyFontToFilesDir(uri)
-                if (ok) {
-                    refreshCustomFontLabel()
+                val font = addCustomFont(uri)
+                if (font != null) {
+                    // Added *and* selected: loading a font is only ever done in order to use it.
+                    populateFonts(font.token)
                     refreshPreview()
-                    Toast.makeText(this@SettingsActivity, R.string.custom_font_loaded, Toast.LENGTH_SHORT).show()
-                    // Apply immediately so the user sees the new font in the next translation
-                    updateActiveServices()
+                    Toast.makeText(
+                        this@SettingsActivity,
+                        getString(R.string.custom_font_added, font.name),
+                        Toast.LENGTH_SHORT
+                    ).show()
                 } else {
                     Toast.makeText(this@SettingsActivity, R.string.custom_font_load_failed, Toast.LENGTH_LONG).show()
                 }
@@ -248,11 +440,17 @@ class SettingsActivity : AppCompatActivity() {
         // LLM API settings
         binding.editSystemPrompt.setText(preferencesManager.systemPrompt)
         binding.editUserPrompt.setText(preferencesManager.userPrompt)
+        binding.textTestSource.text = connectionTestSample()
         currentProvider = preferencesManager.providerFor(preferencesManager.modelName)
         binding.segmentProvider.setSelectionSilently(currentProvider.ordinal)
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
         populateModels(currentProvider, preferencesManager.modelName)
         binding.editApiKey.setText(preferencesManager.getApiKey(currentProvider))
+        binding.switchCloudflareProxy.isChecked = preferencesManager.cloudflareProxyEnabled
+        binding.editCloudflareAccount.setText(preferencesManager.cloudflareAccountId)
+        binding.editCloudflareGateway.setText(preferencesManager.cloudflareGateway)
+        binding.editCloudflareToken.setText(preferencesManager.cloudflareToken)
+        applyCloudflareState(preferencesManager.cloudflareProxyEnabled)
         applyLocalModelState(preferencesManager.useLocalModel)
 
         // Capture settings
@@ -269,11 +467,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchShowAreaBorder.isChecked = preferencesManager.showAreaBorder
         textColorIndex = colorIndex(preferencesManager.translationTextColor)
         bgColorIndex = colorIndex(preferencesManager.translationBgColor)
-        foldSelIndex = foldIndex(preferencesManager.foldFavorite)
-        fontSelIndex = fontIndex(preferencesManager.translationFont)
+        populateFonts(preferencesManager.translationFont)
         binding.switchInPlaceMode.isChecked = preferencesManager.inPlaceMode
         binding.switchUseAccessibility.isChecked = preferencesManager.useAccessibility
         binding.switchMergeOverlap.isChecked = preferencesManager.mergeOverlapBoxes
+        binding.switchMergeAdjacent.isChecked = preferencesManager.mergeAdjacentBoxes
+        binding.sliderMergeAdjacentGap.setSnapped(preferencesManager.mergeAdjacentGapDp.toFloat())
 
         // Control panel styling
         binding.segmentControlPanelOrientation.setSelectionSilently(
@@ -286,7 +485,6 @@ class SettingsActivity : AppCompatActivity() {
         // Save-to-file + custom font
         binding.switchSaveToFile.isChecked = preferencesManager.saveToFileEnabled
         refreshSaveFolderLabel()
-        refreshCustomFontLabel()
 
         // Cache settings
         binding.sliderMaxCache.setSnapped(preferencesManager.maxCacheEntries.toFloat())
@@ -329,6 +527,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.sliderMaxTokens.valueLabel.text =
             binding.sliderMaxTokens.slider.value.toInt().toString()
 
+        binding.sliderMergeAdjacentGap.valueLabel.text = getString(
+            R.string.dp_value,
+            binding.sliderMergeAdjacentGap.slider.value.toInt()
+        )
+
         binding.sliderMaxCache.valueLabel.text =
             binding.sliderMaxCache.slider.value.toInt().toString()
 
@@ -368,11 +571,16 @@ class SettingsActivity : AppCompatActivity() {
             val np = LlmProvider.values()[position]
             if (np != currentProvider) {
                 preferencesManager.setApiKey(currentProvider, binding.editApiKey.text.toString()) // 先存旧公司的 key
+                // Remember the model chosen for the provider we're leaving, so coming back restores
+                // it rather than the list's first entry.
+                currentCodes.getOrNull(modelIndex)?.let { selectedCodeByProvider[currentProvider] = it }
                 currentProvider = np
-                populateModels(np)                                   // 切到新公司模型（选第一个）
+                populateModels(np, selectedCodeByProvider[np])
                 binding.editApiKey.setText(preferencesManager.getApiKey(np))
             }
         }
+
+        binding.btnTestConnection.setOnClickListener { runConnectionTest() }
 
         // Reveal / hide the API key — replaces the old TextInputLayout password toggle
         binding.btnToggleApiKey.setOnClickListener {
@@ -435,6 +643,11 @@ class SettingsActivity : AppCompatActivity() {
             binding.sliderMaxTokens.valueLabel.text = value.toInt().toString()
         }
 
+        binding.sliderMergeAdjacentGap.slider.addOnChangeListener { _, value, _ ->
+            binding.sliderMergeAdjacentGap.valueLabel.text =
+                getString(R.string.dp_value, value.toInt())
+        }
+
         binding.sliderCacheTtl.slider.addOnChangeListener { _, value, _ ->
             binding.sliderCacheTtl.valueLabel.text = getString(
                 R.string.hours_value,
@@ -452,6 +665,29 @@ class SettingsActivity : AppCompatActivity() {
         // Local model switch
         binding.switchUseLocalModel.switch.setOnCheckedChangeListener { _, isChecked ->
             applyLocalModelState(isChecked)
+        }
+
+        binding.switchCloudflareProxy.switch.setOnCheckedChangeListener { _, isChecked ->
+            applyCloudflareState(isChecked)
+            if (isChecked && liveGateway() == null) {
+                Toast.makeText(this, R.string.cf_incomplete, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Reveal / hide the gateway token, the same affordance the API key row carries.
+        binding.btnToggleCloudflareToken.setOnClickListener {
+            val field = binding.editCloudflareToken
+            val hidden = field.inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD != 0
+            val cursor = field.selectionStart
+            val face = field.typeface
+            field.inputType =
+                if (hidden) InputType.TYPE_CLASS_TEXT
+                else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            field.typeface = face
+            field.setSelection(cursor.coerceIn(0, field.text?.length ?: 0))
+            binding.btnToggleCloudflareToken.setImageResource(
+                if (hidden) R.drawable.ic_visibility_off else R.drawable.ic_visibility
+            )
         }
 
         // Speech-bubble style changes the preview's corner radius / border
@@ -480,20 +716,6 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
-        // Custom font: launch document picker (accept any file; we still validate by trying to
-        // load the typeface, since the system picker doesn't reliably filter by .ttf/.otf alone).
-        binding.btnLoadCustomFont.setOnClickListener {
-            try {
-                pickCustomFont.launch(arrayOf("font/*", "application/octet-stream", "*/*"))
-            } catch (e: Exception) {
-                Log.e(TAG, "OpenDocument launch failed", e)
-                Toast.makeText(this, "File picker unavailable", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        binding.btnClearCustomFont.setOnClickListener {
-            clearCustomFont()
-        }
     }
 
     /** Greys out the API controls when the local model is in use, as the old screen did. */
@@ -518,21 +740,14 @@ class SettingsActivity : AppCompatActivity() {
         binding.segmentProvider.setEntries(LlmProvider.values().map { it.displayName })
 
         val colors = resources.getStringArray(R.array.overlay_colors).toList()
-        val fonts = resources.getStringArray(R.array.font_options).toList()
-        val foldOptions = resources.getStringArray(R.array.fold_options).toList()
 
         binding.rowModel.setOnClickListener { showModelPicker() }
+        binding.rowFont.setOnClickListener { showFontPicker() }
         bindPicker(binding.rowFontColor, R.string.font_color, { colors }, { textColorIndex }) {
             textColorIndex = it
         }
         bindPicker(binding.rowBgColor, R.string.background_color, { colors }, { bgColorIndex }) {
             bgColorIndex = it
-        }
-        bindPicker(binding.rowFont, R.string.font_style, { fonts }, { fontSelIndex }) {
-            fontSelIndex = it
-        }
-        bindPicker(binding.rowFoldFavorite, R.string.fold_favorite, { foldOptions }, { foldSelIndex }) {
-            foldSelIndex = it
         }
         bindPicker(
             binding.rowControlPanelBgColor,
@@ -570,10 +785,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.rowModel.value = currentModelNames.getOrNull(modelIndex)
         binding.rowFontColor.value = colors.getOrNull(textColorIndex)
         binding.rowBgColor.value = colors.getOrNull(bgColorIndex)
-        binding.rowFont.value =
-            resources.getStringArray(R.array.font_options).getOrNull(fontSelIndex)
-        binding.rowFoldFavorite.value =
-            resources.getStringArray(R.array.fold_options).getOrNull(foldSelIndex)
+        binding.rowFont.value = currentFontNames.getOrNull(fontSelIndex)
         binding.rowControlPanelBgColor.value = colors.getOrNull(panelBgColorIndex)
     }
 
@@ -602,19 +814,20 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    /** Mirrors OverlayService.resultTypeface(): custom file first, bundled font, then family. */
+    /** Mirrors OverlayService.resultTypeface(): user's own file first, bundled font, then family. */
     private fun previewTypeface(): android.graphics.Typeface {
-        val customPath = preferencesManager.customFontPath
-        if (customPath.isNotEmpty()) {
+        val name = currentFontValues.getOrNull(fontSelIndex)
+            ?: return android.graphics.Typeface.DEFAULT
+        // The picked entry rather than the saved preference, so the preview follows the picker
+        // before Save is pressed — which is the whole point of having one.
+        CustomFont.fromToken(name, preferencesManager.customFonts)?.let { font ->
             try {
-                val f = File(customPath)
+                val f = font.file(this)
                 if (f.exists() && f.canRead()) return android.graphics.Typeface.createFromFile(f)
             } catch (e: Exception) {
                 Log.w(TAG, "Preview: custom font load failed", e)
             }
         }
-        val name = resources.getStringArray(R.array.font_values).getOrNull(fontSelIndex)
-            ?: return android.graphics.Typeface.DEFAULT
         val resId = resources.getIdentifier(name, "font", packageName)
         return if (resId != 0) {
             androidx.core.content.res.ResourcesCompat.getFont(this, resId)
@@ -633,19 +846,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun dp(v: Float) = v * resources.displayMetrics.density
 
-    private fun fontIndex(value: String): Int {
-        val idx = resources.getStringArray(R.array.font_values).indexOf(value)
-        return if (idx >= 0) idx else 0
-    }
-
     private fun colorIndex(color: Int): Int {
         val values = resources.getStringArray(R.array.overlay_color_values)
         val idx = values.indexOfFirst { android.graphics.Color.parseColor(it) == color }
-        return if (idx >= 0) idx else 0
-    }
-
-    private fun foldIndex(value: String): Int {
-        val idx = resources.getStringArray(R.array.fold_option_values).indexOf(value)
         return if (idx >= 0) idx else 0
     }
 
@@ -672,22 +875,21 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun refreshCustomFontLabel() {
-        val path = preferencesManager.customFontPath
-        binding.btnLoadCustomFont.value =
-            if (path.isEmpty()) getString(R.string.custom_font_none) else File(path).name
-    }
-
     /**
-     * Copy the picked font file into filesDir so its path is stable across reboots. Returns false
-     * if the input stream couldn't be opened or the file isn't a valid typeface.
+     * Copies the picked file into the app's own font directory and registers it. Returns the new
+     * entry, or null if the stream couldn't be read or the file isn't a typeface.
+     *
+     * Each pick gets its own file name rather than overwriting a single fixed one, which is what
+     * makes keeping several fonts possible at all.
      */
-    private suspend fun copyFontToFilesDir(srcUri: Uri): Boolean = withContext(Dispatchers.IO) {
-        val dest = File(filesDir, CUSTOM_FONT_FILENAME)
+    private suspend fun addCustomFont(srcUri: Uri): CustomFont? = withContext(Dispatchers.IO) {
+        val dir = CustomFont.dir(this@SettingsActivity)
+        dir.mkdirs()
+        val dest = File(dir, "font_${System.currentTimeMillis()}.ttf")
         try {
             contentResolver.openInputStream(srcUri)?.use { input ->
                 dest.outputStream().use { output -> input.copyTo(output) }
-            } ?: return@withContext false
+            } ?: return@withContext null
 
             // Validate by trying to load it; createFromFile throws RuntimeException for non-fonts.
             try {
@@ -695,27 +897,33 @@ class SettingsActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.w(TAG, "Picked file isn't a valid typeface", e)
                 dest.delete()
-                return@withContext false
+                return@withContext null
             }
-            preferencesManager.customFontPath = dest.absolutePath
-            true
+            val font = CustomFont(name = displayNameOf(srcUri), fileName = dest.name)
+            preferencesManager.customFonts = preferencesManager.customFonts + font
+            font
         } catch (e: Exception) {
-            Log.e(TAG, "copyFontToFilesDir failed", e)
+            Log.e(TAG, "addCustomFont failed", e)
             dest.delete()
-            false
+            null
         }
     }
 
-    private fun clearCustomFont() {
-        val path = preferencesManager.customFontPath
-        if (path.isNotEmpty()) {
-            try { File(path).delete() } catch (_: Exception) {}
-            preferencesManager.customFontPath = ""
-        }
-        refreshCustomFontLabel()
-        refreshPreview()
-        Toast.makeText(this, R.string.custom_font_cleared, Toast.LENGTH_SHORT).show()
-        updateActiveServices()
+    /**
+     * What to call the font in the picker: the picked file's display name without its extension.
+     *
+     * The file name is what the user chose it by and recognises it as. Reading the family name out
+     * of the typeface's own `name` table would be more correct in principle, but it means parsing
+     * the font binary, and the file is almost always named after the family anyway.
+     */
+    private fun displayNameOf(uri: Uri): String {
+        val fromProvider = runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull()
+        val raw = fromProvider ?: uri.lastPathSegment?.substringAfterLast('/')
+        return raw?.substringBeforeLast('.')?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.custom_font)
     }
 
     private fun saveSettings() {
@@ -730,6 +938,10 @@ class SettingsActivity : AppCompatActivity() {
         preferencesManager.userPrompt =
             binding.editUserPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_USER_PROMPT }
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
+        preferencesManager.cloudflareProxyEnabled = binding.switchCloudflareProxy.isChecked
+        preferencesManager.cloudflareAccountId = binding.editCloudflareAccount.text.toString()
+        preferencesManager.cloudflareGateway = binding.editCloudflareGateway.text.toString()
+        preferencesManager.cloudflareToken = binding.editCloudflareToken.text.toString()
         preferencesManager.maxTokens = binding.sliderMaxTokens.slider.value.toInt()
 
         // Capture settings
@@ -747,13 +959,13 @@ class SettingsActivity : AppCompatActivity() {
         val colorValues = resources.getStringArray(R.array.overlay_color_values)
         preferencesManager.translationTextColor = parseColorAt(colorValues, textColorIndex)
         preferencesManager.translationBgColor = parseColorAt(colorValues, bgColorIndex)
-        val foldValues = resources.getStringArray(R.array.fold_option_values)
-        preferencesManager.foldFavorite = foldValues[foldSelIndex.coerceIn(foldValues.indices)]
         preferencesManager.inPlaceMode = binding.switchInPlaceMode.isChecked
         preferencesManager.mergeOverlapBoxes = binding.switchMergeOverlap.isChecked
+        preferencesManager.mergeAdjacentBoxes = binding.switchMergeAdjacent.isChecked
+        preferencesManager.mergeAdjacentGapDp = binding.sliderMergeAdjacentGap.slider.value.toInt()
         preferencesManager.useAccessibility = binding.switchUseAccessibility.isChecked
-        val fontValues = resources.getStringArray(R.array.font_values)
-        preferencesManager.translationFont = fontValues[fontSelIndex.coerceIn(fontValues.indices)]
+        preferencesManager.translationFont =
+            currentFontValues.getOrNull(fontSelIndex) ?: "sans-serif"
 
         // Control panel styling
         val orientationValues = resources.getStringArray(R.array.control_panel_orientation_values)

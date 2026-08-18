@@ -53,6 +53,17 @@
     <string name="model">模型</string>
     <string name="use_local_model">使用本地模型</string>
     <string name="use_local_model_hint">使用本地模型时无需 API 密钥。</string>
+
+    <!-- Cloudflare AI Gateway：在所选厂商前面加的一跳中转 -->
+    <string name="cf_section">Cloudflare AI 网关</string>
+    <string name="cf_proxy">通过 Cloudflare 中转</string>
+    <string name="cf_proxy_hint">所有服务商都改走你的网关，不再直连厂商。</string>
+    <string name="cf_account_id">账户 ID</string>
+    <string name="cf_account_hint">未设置</string>
+    <string name="cf_gateway_name">网关名称</string>
+    <string name="cf_token">网关令牌</string>
+    <string name="cf_footnote">厂商自己的 API 密钥仍然必填——网关只是转发它。网关令牌会在连通测试时单独验证。</string>
+    <string name="cf_incomplete">请填写账户 ID 和网关令牌</string>
     <string name="add_model">添加模型…</string>
     <string name="add_model_for">为 %1$s 添加模型</string>
     <string name="add_model_title_label">显示名称</string>
@@ -91,6 +102,20 @@
     <string name="settings_saved">设置已保存</string>
     <string name="settings_reset">设置已恢复默认</string>
     <string name="merge_overlap_boxes">翻译注音</string>
+    <string name="merge_adjacent_boxes">合并翻译框</string>
+    <string name="merge_adjacent_boxes_hint">相邻的几行共用一个背景，而不是每行一个，行与行之间不再有接缝。译文仍各自落在所替换的那一行上，每行多长就多长。</string>
+    <string name="merge_adjacent_gap">行间距小于此值时合并</string>
+    <string name="dp_value">%1$d dp</string>
+    <string name="merge_covers">合并涂抹框</string>
+
+    <!-- 连通测试（翻译设置最上方） -->
+    <string name="connection_test_section">连通测试</string>
+    <string name="connection_test_idle">测试当前选择的LLM服务商，是否可用。</string>
+    <string name="connection_test_run">测试</string>
+    <string name="connection_test_running">正在连接 %1$s…</string>
+    <string name="connection_test_ok">%1$s\n\n成功 · %2$d 毫秒</string>
+    <string name="connection_test_failed">失败 · %1$s</string>
+    <string name="connection_test_local">已开启本地模型，不会发出请求。</string>
     <string name="font_color">文字颜色</string>
     <string name="background_color">背景颜色</string>
     <string name="font_style">字体</string>
@@ -102,22 +127,26 @@
     <string name="system_prompt_label">系统提示词</string>
     <string name="user_prompt_label">用户提示词（{source}、{target}、{text}）</string>
     <string name="text_copied_to_clipboard">已复制到剪贴板</string>
+    <string name="close_result_card">关闭这条译文</string>
 
     <!-- Overlay control panel -->
     <string name="pause_translation">暂停</string>
     <string name="close_translation">关闭</string>
     <string name="select_area">选择区域</string>
-    <string name="select_area_hint">拖动选择要翻译的区域</string>
     <string name="show_area_border">显示所选区域边框</string>
     <string name="scan_area_tag">扫描区域</string>
-    <string name="translate_now">立即翻译</string>
+    <string name="translate_now">手动翻译</string>
     <string name="auto_mode">自动模式</string>
     <string name="expand_handle">展开</string>
-    <string name="fold_favorite">折叠时显示的按钮</string>
     <string name="expand_controls">更多选项</string>
     <string name="collapse_controls">更少选项</string>
     <string name="control_panel_collapse">折叠</string>
-    <string name="control_panel_dock">停靠到边缘</string>
+    <string name="control_panel_dock">收起</string>
+    <string name="text_size_larger">字号放大</string>
+    <string name="text_size_smaller">字号缩小</string>
+    <string name="copy_round">复制文本</string>
+    <string name="open_app">打开应用</string>
+    <string name="nothing_to_copy">当前屏幕上还没有译文</string>
     <string name="control_panel_expand">展开</string>
     <string name="control_panel_section">控制条</string>
     <string name="control_panel_orientation">方向</string>
@@ -175,13 +204,9 @@
     <string name="save_folder_unset">文件夹访问权限已失效，请重新选择</string>
 
     <!-- Custom font -->
-    <string name="custom_font_section">自定义字体（.ttf / .otf）</string>
     <string name="custom_font">字体文件</string>
-    <string name="custom_font_load">加载字体</string>
-    <string name="custom_font_clear">清除字体</string>
-    <string name="custom_font_current">自定义字体：%1$s</string>
-    <string name="custom_font_none">未加载</string>
+    <string name="custom_font_load">加载字体…</string>
     <string name="custom_font_load_failed">无法加载该字体文件</string>
-    <string name="custom_font_loaded">自定义字体已加载</string>
-    <string name="custom_font_cleared">自定义字体已清除</string>
+    <string name="custom_font_added">已添加 %1$s</string>
+    <string name="custom_font_remove_title">移除 %1$s？</string>
 </resources>

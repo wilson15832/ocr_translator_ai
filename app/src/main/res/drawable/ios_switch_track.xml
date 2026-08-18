@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 51x31 track; SwitchCompat swaps the two states. -->
+<!--
+  51x31 track; SwitchCompat swaps the two states.
+
+  The "on" track takes the accent rather than a fixed iOS green, so switching swatches re-themes
+  it along with every other filled surface. It is exactly that — a filled surface — which is why
+  the raw ?attr/colorPrimary is right here and not colorPrimaryVariant.
+-->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_checked="true">
         <shape android:shape="rectangle">
-            <solid android:color="@color/ios_switch_on" />
+            <solid android:color="?attr/colorPrimary" />
             <corners android:radius="15.5dp" />
             <size android:width="51dp" android:height="31dp" />
         </shape>

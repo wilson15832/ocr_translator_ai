@@ -1,7 +1,12 @@
 package com.example.ocr_translation.ui
 
+import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PathMeasure
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -10,6 +15,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -41,19 +47,43 @@ class ControlWheel @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
 
-    /** The five actions of the old bar, in the order the wheel cycles them. Wraps at both ends. */
+    /**
+     * The actions, in the order the wheel cycles them. Wraps at both ends.
+     *
+     * Order is the whole ergonomics of this control, since reaching an action means dragging past
+     * the ones before it. The pair you use constantly — Auto and Translate — is at the near end,
+     * and destructive Close is at the far one. New actions go in front of Close, which shifts its
+     * ordinal; `wheelFocus` persists ordinals, so someone who had Close armed comes back with
+     * whatever took its number. Harmless in that direction, which is the reason for the rule.
+     */
     enum class Action(val iconRes: Int, val labelRes: Int) {
         AUTO(R.drawable.ic_start, R.string.auto_mode),
         TRANSLATE(R.drawable.ic_translate, R.string.translate_now),
+        // Straight after Translate, because the size you want is judged against a translation you
+        // just triggered — and next to each other, because overshooting by one is the normal way
+        // to find it, so the correction should be one notch back rather than a lap of the wheel.
+        TEXT_LARGER(R.drawable.ic_text_larger, R.string.text_size_larger),
+        TEXT_SMALLER(R.drawable.ic_text_smaller, R.string.text_size_smaller),
         SELECT_AREA(R.drawable.ic_crop, R.string.select_area),
         // Was FOLD; the wheel now folds itself after an idle timeout, so the manual action is
         // the one thing that couldn't be automatic — parking against the screen edge (design 4a).
         DOCK(R.drawable.ic_dock_edge, R.string.control_panel_dock),
+        MERGE_COVERS(R.drawable.ic_merge_covers, R.string.merge_covers),
+        COPY(R.drawable.ic_copy, R.string.copy_round),
+        OPEN_APP(R.drawable.ic_open_app, R.string.open_app),
         CLOSE(R.drawable.ic_close, R.string.close_translation)
     }
 
     /** Fired when the centre is tapped. */
     var onFire: ((Action) -> Unit)? = null
+
+    /**
+     * Fired the moment a touch lands on the strip, before it is known what kind of gesture it is.
+     *
+     * The owner watches for touches outside its own windows to tell when the user has moved the
+     * game on, and this is how it learns that this one was aimed at the bar instead.
+     */
+    var onTouched: (() -> Unit)? = null
 
     /** Long-press drag: cumulative delta from where the press landed. */
     var onMoveStart: (() -> Unit)? = null
@@ -66,6 +96,13 @@ class ControlWheel @JvmOverloads constructor(
     /** Names the armed action while the user is cycling; hidden the rest of the time. */
     var onLabel: ((CharSequence?) -> Unit)? = null
 
+    /**
+     * Fired when the strip folds or unfolds. The window wraps this view exactly, so collapsing it
+     * changes the window's size — and since the window is anchored by an edge, not by its middle,
+     * the armed glyph would slide towards that edge. The owner uses this to put it back.
+     */
+    var onFoldChanged: ((folded: Boolean) -> Unit)? = null
+
 
     private val prevGhost = ImageView(context)
     private val nextGhost = ImageView(context)
@@ -77,9 +114,37 @@ class ControlWheel @JvmOverloads constructor(
     private val handler = Handler(Looper.getMainLooper())
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
+    // ===== AUTO-SCAN INDICATOR =====
+
+    /**
+     * The glow is two strokes of the same arc rather than a BlurMaskFilter: mask filters are
+     * ignored by the hardware canvas below API 28, and this bar spends its life over a game, where
+     * a software layer is the last thing worth paying for. A wide faint stroke under a narrow
+     * bright one reads as a glow at this size.
+     */
+    private val ringGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val ringCore = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+    private val ringPath = Path()
+    private val ringMeasure = PathMeasure()
+    /** The visible arc, rebuilt into the same object each frame rather than allocated per frame. */
+    private val ringArc = Path()
+    private var ringLength = 0f
+    /** How far round the outline the arc's leading edge sits, 0..1. */
+    private var ringPhase = 0f
+    private var ringAnimator: ValueAnimator? = null
+
     private var focusIndex = 0
     private var folded = false
     private var autoRunning = false
+    private var mergeCovers = false
     private var panelColor = Color.TRANSPARENT
     private var lifted = false
     private var sizeScale = 1f
@@ -120,12 +185,111 @@ class ControlWheel @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         armAutoFold()
+        updateRingAnimation()
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         handler.removeCallbacks(autoFold)
         handler.removeCallbacks(longPress)
+        updateRingAnimation()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        buildRing(w, h)
+    }
+
+    /**
+     * The outline the light travels: the capsule's own shape, inset so the glow's width stays
+     * inside the view.
+     *
+     * It has to. The overlay window wraps this view exactly, so anything drawn past the bounds is
+     * clipped away — the same constraint that rules out an elevation shadow here.
+     */
+    private fun buildRing(w: Int, h: Int) {
+        val inset = RING_INSET_DP * resources.displayMetrics.density
+        ringPath.rewind()
+        if (w <= 0 || h <= 0) {
+            ringLength = 0f
+            return
+        }
+        val radius = (sdp(CORNER_RADIUS_DP) - inset).coerceAtLeast(0f)
+        ringPath.addRoundRect(
+            inset, inset, w - inset, h - inset, radius, radius, Path.Direction.CW
+        )
+        ringMeasure.setPath(ringPath, true)
+        ringLength = ringMeasure.length
+    }
+
+    /**
+     * Runs the light only while auto-scan is on and the bar is attached.
+     *
+     * An overlay that animates forever redraws forever, over whatever is underneath — so it stops
+     * the moment either of those stops being true, rather than idling at zero progress.
+     */
+    private fun updateRingAnimation() {
+        val shouldRun = autoRunning && isAttachedToWindow
+        if (shouldRun) {
+            if (ringAnimator != null) return
+            ringAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = RING_PERIOD_MS
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                addUpdateListener {
+                    ringPhase = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
+        } else {
+            ringAnimator?.cancel()
+            ringAnimator = null
+            invalidate()
+        }
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        if (!autoRunning) return
+        drawRunningLight(canvas)
+        drawStatusDot(canvas)
+    }
+
+    /** A short arc of the outline, at [ringPhase] of the way round. */
+    private fun drawRunningLight(canvas: Canvas) {
+        if (ringLength <= 0f) return
+        val accent = AppTheme.colorPrimary(context)
+        val density = resources.displayMetrics.density
+        ringGlow.color = (accent and 0x00FFFFFF) or (RING_GLOW_ALPHA shl 24)
+        ringGlow.strokeWidth = RING_GLOW_WIDTH_DP * density
+        ringCore.color = accent
+        ringCore.strokeWidth = RING_CORE_WIDTH_DP * density
+
+        val start = ringPhase * ringLength
+        val end = start + ringLength * RING_ARC_FRACTION
+        ringArc.rewind()
+        ringMeasure.getSegment(start, minOf(end, ringLength), ringArc, true)
+        // Wrapping past the end continues from the beginning, so the light never breaks stride.
+        if (end > ringLength) ringMeasure.getSegment(0f, end - ringLength, ringArc, true)
+        canvas.drawPath(ringArc, ringGlow)
+        canvas.drawPath(ringArc, ringCore)
+    }
+
+    /**
+     * The steady mark: small, on the top-right corner, and not where any glyph is.
+     *
+     * Placed on the corner's own arc — 45° round it — rather than at a fixed offset, so it stays
+     * attached to the edge instead of drifting into the space outside the curve when the size
+     * preference scales the capsule.
+     */
+    private fun drawStatusDot(canvas: Canvas) {
+        val corner = sdp(CORNER_RADIUS_DP).toFloat()
+        val offset = corner * (1f - 0.70710677f)
+        dotPaint.color = AppTheme.colorPrimary(context)
+        canvas.drawCircle(
+            width - offset, offset, DOT_RADIUS_DP * resources.displayMetrics.density, dotPaint
+        )
     }
 
     /**
@@ -176,9 +340,28 @@ class ControlWheel @JvmOverloads constructor(
         refresh()
     }
 
-    /** Auto-scan state. The focus slot fills with the accent, so the wheel is its own indicator. */
+    /**
+     * Auto-scan state, shown as a dot in the corner and a light travelling the capsule's edge.
+     *
+     * It used to be a filled accent disc behind the armed glyph, which read as a button rather
+     * than as a state — the one thing on the bar you press is the centre, and colouring it made
+     * the wheel look pressed. The edge and the corner are the parts nothing else is using, so the
+     * indicator can sit there without competing with the glyphs, and a moving light says "running"
+     * in a way no static fill does.
+     */
     fun setAutoRunning(running: Boolean) {
+        if (autoRunning == running) return
         autoRunning = running
+        updateRingAnimation()
+        refresh()
+    }
+
+    /**
+     * Merged-covers state, so the glyph can show what a tap would do rather than a fixed icon.
+     * Kept in sync from the service, which owns the preference — Settings can change it too.
+     */
+    fun setMergeCovers(on: Boolean) {
+        mergeCovers = on
         refresh()
     }
 
@@ -208,9 +391,8 @@ class ControlWheel @JvmOverloads constructor(
         background = if (!visible && !lifted) {
             null
         } else {
-            GradientDrawable().apply {
+            glassPane(if (visible) panelColor else Color.TRANSPARENT).apply {
                 cornerRadius = sdp(CORNER_RADIUS_DP).toFloat()
-                setColor(if (visible) panelColor else Color.TRANSPARENT)
                 if (lifted) {
                     setStroke(dp(2), AppTheme.colorPrimary(context))
                 } else {
@@ -220,11 +402,48 @@ class ControlWheel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * The panel fill as a pane of frosted glass rather than a flat rectangle of colour.
+     *
+     * Painted, not sampled. Real frosted glass means blurring what is behind the window, and the
+     * only API for that — `FLAG_BLUR_BEHIND` — blurs the whole window rectangle, which cannot be
+     * clipped to these rounded corners; it also wants Android 12 and gets switched off globally by
+     * battery saver. What actually sells glass at this size is the lighting, not the blur: a sheen
+     * along the top edge fading out by a third of the way down, and a slightly denser foot. Those
+     * follow the corner radius for free, cost nothing per frame, and look the same on every
+     * device.
+     *
+     * Alpha is left as the user set it, since here it is still the only thing keeping the glyphs
+     * legible over a bright scene.
+     */
+    private fun glassPane(color: Int): GradientDrawable {
+        if (Color.alpha(color) == 0) return GradientDrawable().apply { setColor(color) }
+        val sheen = shift(color, Color.WHITE, SHEEN_STRENGTH)
+        val foot = shift(color, Color.BLACK, FOOT_STRENGTH)
+        // Four stops rather than three: the repeated body colour holds the sheen to the top third,
+        // where a light source would actually catch the edge. Spread evenly it reads as a gradient
+        // fill instead.
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(sheen, color, color, foot)
+        )
+    }
+
+    /** Moves [base] towards [towards] by [amount], keeping its alpha. */
+    private fun shift(base: Int, towards: Int, amount: Float): Int = Color.argb(
+        Color.alpha(base),
+        Color.red(base) + ((Color.red(towards) - Color.red(base)) * amount).toInt(),
+        Color.green(base) + ((Color.green(towards) - Color.green(base)) * amount).toInt(),
+        Color.blue(base) + ((Color.blue(towards) - Color.blue(base)) * amount).toInt()
+    )
+
     /** Folded: just the armed icon, no ghosts and no chevrons. */
     fun setFolded(value: Boolean) {
+        if (folded == value) return
         folded = value
         refresh()
         if (value) handler.removeCallbacks(autoFold) else armAutoFold()
+        onFoldChanged?.invoke(value)
     }
 
     /**
@@ -244,25 +463,22 @@ class ControlWheel @JvmOverloads constructor(
      *   animates: the three glyphs enter from the side they conceptually came from and settle,
      *   so the strip reads as having scrolled by one notch rather than the icons simply swapping.
      */
+    /**
+     * The glyph an action currently shows. The two toggles swap theirs for the opposite state's,
+     * so what you see is what the tap does — the ghosts get the same treatment, since an icon that
+     * changed as it slid into the centre would read as the wheel having moved somewhere else.
+     */
+    private fun glyphFor(action: Action): Int = when {
+        action == Action.AUTO && autoRunning -> R.drawable.ic_pause
+        action == Action.MERGE_COVERS && mergeCovers -> R.drawable.ic_split_covers
+        else -> action.iconRes
+    }
+
     private fun refresh(slideSign: Int = 0) {
         val current = Action.entries[focusIndex]
-        focusIcon.setImageDrawable(
-            shadowed(
-                // Auto is a toggle, so its glyph reports the state rather than the action.
-                if (current == Action.AUTO && autoRunning) R.drawable.ic_pause else current.iconRes
-            )
-        )
-        prevGhost.setImageDrawable(shadowed(Action.entries[wrap(focusIndex - 1)].iconRes))
-        nextGhost.setImageDrawable(shadowed(Action.entries[wrap(focusIndex + 1)].iconRes))
-
-        focusSlot.background = if (autoRunning) {
-            GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(AppTheme.colorPrimary(context))
-            }
-        } else {
-            null
-        }
+        focusIcon.setImageDrawable(shadowed(glyphFor(current)))
+        prevGhost.setImageDrawable(shadowed(glyphFor(Action.entries[wrap(focusIndex - 1)])))
+        nextGhost.setImageDrawable(shadowed(glyphFor(Action.entries[wrap(focusIndex + 1)])))
 
         val peripheral = if (folded) View.GONE else View.VISIBLE
         prevGhost.visibility = peripheral
@@ -281,15 +497,19 @@ class ControlWheel @JvmOverloads constructor(
      * Folded, it tightens to a ring around the single armed glyph — a circle, not a tall pill.
      * Unfolded it only needs enough slack along the strip for a sliding glyph to travel through
      * without the WRAP_CONTENT overlay window clipping it.
+     *
+     * The folded inset is the same one the strip already carried across its width, on all four
+     * sides. A larger one made the bar *wider* as it collapsed: the strip's width is the focus slot
+     * plus its across padding either way, so any folded inset above that adds to it — the fold read
+     * as the bar growing rather than shrinking.
      */
     private fun applyPadding() {
+        val along = sdp(PADDING_ALONG_DP)
+        val across = sdp(PADDING_ACROSS_DP)
         if (folded) {
-            val p = sdp(5)
-            setPadding(p, p, p, p)
+            setPadding(across, across, across, across)
             return
         }
-        val along = sdp(8)
-        val across = sdp(2)
         if (orientation == VERTICAL) setPadding(across, along, across, along)
         else setPadding(along, across, along, across)
     }
@@ -370,6 +590,7 @@ class ControlWheel @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                onTouched?.invoke()
                 downX = event.rawX
                 downY = event.rawY
                 cycleAnchor = along(event)
@@ -489,8 +710,31 @@ class ControlWheel @JvmOverloads constructor(
         const val SLIDE_MS = 190L
         /** Idle time before the wheel collapses to its armed glyph. */
         const val AUTO_FOLD_MS = 5_000L
+        /**
+         * Inset around the glyphs, and so the size of the backing capsule — the background fills
+         * the view including its padding, and the glyphs' own dimensions are fixed. `along` runs
+         * with the strip and also has to leave a sliding glyph room to travel through without the
+         * WRAP_CONTENT window clipping it; `across` sets the width (and, folded, all four sides).
+         * Both are scaled by the size preference.
+         */
+        const val PADDING_ALONG_DP = 12
+        const val PADDING_ACROSS_DP = 6
+
         /** Rounded-rectangle corner; large enough to read as soft, small enough not to be a pill. */
         const val CORNER_RADIUS_DP = 18
+
+        // Auto-scan indicator. The arc is a fifth of the outline: long enough to read as a
+        // travelling light rather than a dot, short enough that the capsule never looks outlined.
+        const val RING_INSET_DP = 3f
+        const val RING_ARC_FRACTION = 0.2f
+        const val RING_GLOW_WIDTH_DP = 6f
+        const val RING_CORE_WIDTH_DP = 2f
+        const val RING_GLOW_ALPHA = 0x4D
+        const val RING_PERIOD_MS = 2200L
+        const val DOT_RADIUS_DP = 3.5f
+        /** How far the top edge is lifted towards white, and the foot pushed towards black. */
+        const val SHEEN_STRENGTH = 0.28f
+        const val FOOT_STRENGTH = 0.12f
         const val GHOST_ALPHA = 0.3f
         val SHADOW_TINT = Color.parseColor("#D9000000")
         val CHEVRON_TINT = Color.parseColor("#38FFFFFF")

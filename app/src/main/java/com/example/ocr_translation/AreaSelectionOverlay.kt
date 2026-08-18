@@ -4,37 +4,45 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
-import com.example.ocr_translation.ui.AppTheme
 
 /**
- * Area picker, design 3f.
+ * Area picker, in the photo-crop idiom: corner brackets, a thirds grid, and everything outside
+ * dimmed.
  *
- * Everything *outside* the box dims, rather than the box itself being filled with translucent
- * accent. On a bright scene the old translucent-blue-rectangle-on-top read as barely there;
- * inverting it makes the selection unmistakable. Corner handles say the box can be adjusted, and
- * a live size chip confirms what was actually drawn.
+ * Borrowed deliberately, because it is the one selection UI every phone user has already met — in
+ * the camera roll, in every editor — so nothing about it needs explaining. Its parts also happen to
+ * say the right things here: brackets read as grabbable where the previous decorative handles only
+ * looked it, and the absence of a drawn frame leaves the scrim's edge to define the boundary, which
+ * is a cleaner line than a stroke straddling it.
+ *
+ * Monochrome rather than accent-tinted. Over an arbitrary game frame a themed outline competes with
+ * whatever is behind it, and white on a dimmed surround is legible against all of them.
  */
 class AreaSelectionOverlay(context: Context) : View(context) {
 
     private val density = context.resources.displayMetrics.density
 
-    private val accent = AppTheme.colorPrimary(context)
-
-    private val framePaint = Paint().apply {
-        color = accent
+    private val cornerPaint = Paint().apply {
+        color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = 3f * density
+        strokeWidth = 4f * density
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
         isAntiAlias = true
     }
 
-    private val handlePaint = Paint().apply {
-        color = Color.WHITE
+    /** Reused across the four corners; building a Path per frame would allocate on every drag. */
+    private val cornerPath = Path()
+
+    /** Rule-of-thirds guides: present enough to compose against, faint enough to ignore. */
+    private val gridPaint = Paint().apply {
+        color = Color.parseColor("#40FFFFFF")
         style = Paint.Style.STROKE
-        strokeWidth = 5f * density
-        strokeCap = Paint.Cap.ROUND
+        strokeWidth = 1f * density
         isAntiAlias = true
     }
 
@@ -57,57 +65,88 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
 
-    private var startX = 0f
-    private var startY = 0f
-    private var currentX = 0f
-    private var currentY = 0f
-    private var isDragging = false
+    /** The live selection, in view coordinates. Normalised: left <= right, top <= bottom. */
+    private val selection = RectF()
+
+    /**
+     * What the current gesture is doing.
+     *
+     * Resizing and drawing are the same operation with a different fixed point — a corner drag
+     * pins the opposite corner and follows the finger, exactly as drawing pins where the finger
+     * went down. Sharing the path also means dragging a corner past its opposite one flips the box
+     * the way you'd expect, instead of needing a special case.
+     */
+    private enum class Grip { NONE, CORNER, MOVE }
+
+    private var grip = Grip.NONE
+
+    /** The point a [Grip.CORNER] drag holds still: the corner opposite the one grabbed. */
+    private var anchorX = 0f
+    private var anchorY = 0f
+
+    /** Where inside the box a [Grip.MOVE] was grabbed, so it doesn't jump under the finger. */
+    private var grabOffsetX = 0f
+    private var grabOffsetY = 0f
 
     /** Notified when the user starts (true) / finishes (false) dragging a box. */
     var onDragStateChanged: ((dragging: Boolean) -> Unit)? = null
 
-    val selectedRect: RectF
-        get() = RectF(
-            minOf(startX, currentX),
-            minOf(startY, currentY),
-            maxOf(startX, currentX),
-            maxOf(startY, currentY)
-        )
+    val selectedRect: RectF get() = RectF(selection)
 
-    /** True once the user has drawn something worth using. */
+    /**
+     * Restores a previously chosen area so it can be adjusted instead of redrawn.
+     *
+     * Reselecting from scratch was the only way to change the area, which made a small correction —
+     * the dialogue box is 20px taller than you thought — as much work as the original selection.
+     */
+    fun setSelection(rect: RectF?) {
+        if (rect == null) selection.setEmpty() else selection.set(rect)
+        invalidate()
+    }
+
+    /** True once there is something worth using. */
     private val hasSelection: Boolean
-        get() = selectedRect.width() > 10 && selectedRect.height() > 10
+        get() = selection.width() > MIN_SIZE && selection.height() > MIN_SIZE
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                startX = event.x
-                startY = event.y
-                currentX = event.x
-                currentY = event.y
-                isDragging = true
+                beginGesture(event.x, event.y)
                 onDragStateChanged?.invoke(true)
                 invalidate()
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (isDragging) {
-                    currentX = event.x
-                    currentY = event.y
-                    invalidate()
-                    return true
+                when (grip) {
+                    Grip.CORNER -> {
+                        selection.set(
+                            minOf(anchorX, event.x).coerceAtLeast(0f),
+                            minOf(anchorY, event.y).coerceAtLeast(0f),
+                            maxOf(anchorX, event.x).coerceAtMost(width.toFloat()),
+                            maxOf(anchorY, event.y).coerceAtMost(height.toFloat())
+                        )
+                    }
+                    Grip.MOVE -> {
+                        // Positioned from the grab offset rather than accumulated deltas, so
+                        // dragging past an edge and back doesn't leave the box lagging the finger.
+                        val w = selection.width()
+                        val h = selection.height()
+                        selection.offsetTo(
+                            (event.x - grabOffsetX).coerceIn(0f, (width - w).coerceAtLeast(0f)),
+                            (event.y - grabOffsetY).coerceIn(0f, (height - h).coerceAtLeast(0f))
+                        )
+                    }
+                    Grip.NONE -> return true
                 }
+                invalidate()
+                return true
             }
-            MotionEvent.ACTION_UP -> {
-                isDragging = false
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                grip = Grip.NONE
                 onDragStateChanged?.invoke(false)
-                // Make sure we have minimum dimensions
-                if (selectedRect.width() < 10 || selectedRect.height() < 10) {
-                    startX = 0f
-                    startY = 0f
-                    currentX = 0f
-                    currentY = 0f
-                }
+                // A tap, or a box too small to be worth anything: drop it rather than leave a
+                // sliver behind that the buttons would happily accept.
+                if (!hasSelection) selection.setEmpty()
                 invalidate()
                 return true
             }
@@ -115,22 +154,71 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         return super.onTouchEvent(event)
     }
 
+    /**
+     * Decides what a touch does: a corner grabs that corner, anywhere inside moves the whole box,
+     * and anywhere outside starts a new one.
+     *
+     * Corners win over the interior so a small box is still adjustable — its handles would
+     * otherwise all be inside it and unreachable.
+     */
+    private fun beginGesture(x: Float, y: Float) {
+        val slop = HANDLE_TOUCH_DP * density
+        if (hasSelection) {
+            val onLeft = kotlin.math.abs(x - selection.left) <= slop
+            val onRight = kotlin.math.abs(x - selection.right) <= slop
+            val onTop = kotlin.math.abs(y - selection.top) <= slop
+            val onBottom = kotlin.math.abs(y - selection.bottom) <= slop
+            if ((onLeft || onRight) && (onTop || onBottom)) {
+                grip = Grip.CORNER
+                anchorX = if (onLeft) selection.right else selection.left
+                anchorY = if (onTop) selection.bottom else selection.top
+                return
+            }
+            if (selection.contains(x, y)) {
+                grip = Grip.MOVE
+                grabOffsetX = x - selection.left
+                grabOffsetY = y - selection.top
+                return
+            }
+        }
+        grip = Grip.CORNER
+        anchorX = x
+        anchorY = y
+        selection.set(x, y, x, y)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        if (!isDragging && !hasSelection) {
+        if (grip == Grip.NONE && !hasSelection) {
             // Nothing drawn yet: dim the whole screen so the instruction bar reads.
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), scrimPaint)
             return
         }
 
-        val area = selectedRect
+        val area = selection
         drawScrimAround(canvas, area)
-
-        val radius = 18f * density
-        canvas.drawRoundRect(area, radius, radius, framePaint)
-        drawCornerHandles(canvas, area)
+        drawThirds(canvas, area)
+        drawCornerBrackets(canvas, area)
         drawSizeChip(canvas, area)
+    }
+
+    /**
+     * Two lines each way, at the thirds.
+     *
+     * Skipped on a small box: at that size the guides are closer together than the text being
+     * framed and read as noise over it rather than as structure.
+     */
+    private fun drawThirds(canvas: Canvas, area: RectF) {
+        if (area.width() < GRID_MIN_DP * density || area.height() < GRID_MIN_DP * density) return
+        val thirdW = area.width() / 3f
+        val thirdH = area.height() / 3f
+        for (i in 1..2) {
+            val x = area.left + thirdW * i
+            canvas.drawLine(x, area.top, x, area.bottom, gridPaint)
+            val y = area.top + thirdH * i
+            canvas.drawLine(area.left, y, area.right, y, gridPaint)
+        }
     }
 
     /** Four rects around the selection — cheaper and sharper than a clipped full-screen fill. */
@@ -143,21 +231,65 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         canvas.drawRect(area.right, area.top, w, area.bottom, scrimPaint)
     }
 
-    private fun drawCornerHandles(canvas: Canvas, area: RectF) {
-        val arm = 22f * density
-        val inset = 1f * density
-        // Top-left
-        canvas.drawLine(area.left - inset, area.top + arm, area.left - inset, area.top - inset, handlePaint)
-        canvas.drawLine(area.left - inset, area.top - inset, area.left + arm, area.top - inset, handlePaint)
-        // Top-right
-        canvas.drawLine(area.right - arm, area.top - inset, area.right + inset, area.top - inset, handlePaint)
-        canvas.drawLine(area.right + inset, area.top - inset, area.right + inset, area.top + arm, handlePaint)
-        // Bottom-left
-        canvas.drawLine(area.left - inset, area.bottom - arm, area.left - inset, area.bottom + inset, handlePaint)
-        canvas.drawLine(area.left - inset, area.bottom + inset, area.left + arm, area.bottom + inset, handlePaint)
-        // Bottom-right
-        canvas.drawLine(area.right - arm, area.bottom + inset, area.right + inset, area.bottom + inset, handlePaint)
-        canvas.drawLine(area.right + inset, area.bottom + inset, area.right + inset, area.bottom - arm, handlePaint)
+    /**
+     * An L at each corner, square, meeting exactly on the crop edge.
+     *
+     * The arm shortens on a small box so the four brackets can't grow into one another and close
+     * the shape back into the frame this replaced.
+     */
+    private fun drawCornerBrackets(canvas: Canvas, area: RectF) {
+        val arm = minOf(
+            ARM_DP * density,
+            minOf(area.width(), area.height()) / 3f
+        ).coerceAtLeast(1f)
+        // Half the stroke sits either side of the path, so the outer edge of each bracket lands on
+        // the crop edge rather than straddling it.
+        val out = cornerPaint.strokeWidth / 2f
+        val l = area.left - out
+        val t = area.top - out
+        val r = area.right + out
+        val b = area.bottom + out
+
+        // Never more than a third of the arm, or the two straights vanish into the curve and the
+        // bracket stops reading as a corner.
+        val radius = minOf(ELBOW_RADIUS_DP * density, arm / 3f)
+
+        bracket(canvas, l + arm, t, l, t, l, t + arm, radius)
+        bracket(canvas, r - arm, t, r, t, r, t + arm, radius)
+        bracket(canvas, l + arm, b, l, b, l, b - arm, radius)
+        bracket(canvas, r - arm, b, r, b, r, b - arm, radius)
+    }
+
+    /**
+     * One bracket: an arm in from ([x1], [y1]), a curve through the elbow at ([cx], [cy]), an arm
+     * back out to ([x2], [y2]).
+     *
+     * The elbow is an explicit quadratic rather than a rounded stroke join, so how soft it looks is
+     * a number that can be set — a join only ever rounds by half the stroke width, which meant
+     * asking for more curve meant asking for a thicker bracket.
+     */
+    private fun bracket(
+        canvas: Canvas,
+        x1: Float, y1: Float,
+        cx: Float, cy: Float,
+        x2: Float, y2: Float,
+        radius: Float
+    ) {
+        cornerPath.rewind()
+        cornerPath.moveTo(x1, y1)
+        // Stop short of the elbow along each arm and let the corner itself be the control point:
+        // the curve then leaves and rejoins the arms along their own direction, with no kink.
+        cornerPath.lineTo(towards(cx, x1, radius), towards(cy, y1, radius))
+        cornerPath.quadTo(cx, cy, towards(cx, x2, radius), towards(cy, y2, radius))
+        cornerPath.lineTo(x2, y2)
+        canvas.drawPath(cornerPath, cornerPaint)
+    }
+
+    /** [distance] from [from] in the direction of [to]; [from] itself when the two coincide. */
+    private fun towards(from: Float, to: Float, distance: Float): Float = when {
+        to > from -> from + distance
+        to < from -> from - distance
+        else -> from
     }
 
     /** Live "330 × 130" readout, above the box or tucked inside it when there's no room. */
@@ -177,5 +309,22 @@ class AreaSelectionOverlay(context: Context) : View(context) {
         )
         canvas.drawRoundRect(chip, 8f * density, 8f * density, chipPaint)
         canvas.drawText(label, centreX - textW / 2, bottom - padV - metrics.descent, chipTextPaint)
+    }
+
+    private companion object {
+        /** Length of each bracket arm on a box with room for it. */
+        const val ARM_DP = 24f
+
+        /** How far the elbow is rounded. Big enough to read as soft, short of a quarter-circle. */
+        const val ELBOW_RADIUS_DP = 7f
+
+        /** Below this in either direction the thirds grid is left off. */
+        const val GRID_MIN_DP = 96f
+
+        /** How near a corner a touch has to land to grab it, rather than move the box. */
+        const val HANDLE_TOUCH_DP = 28f
+
+        /** Below this in either direction the box is treated as a stray tap and discarded. */
+        const val MIN_SIZE = 10f
     }
 }

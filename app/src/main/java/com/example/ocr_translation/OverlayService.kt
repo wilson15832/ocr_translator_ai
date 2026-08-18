@@ -81,6 +81,21 @@ class OverlayService : Service() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     /**
+     * Width of the display itself, which is not what `resources.displayMetrics` reports.
+     *
+     * A service's own metrics exclude system decor and don't track rotation the way the display
+     * does, so in a landscape game they come back well short. Anything comparing a window's
+     * on-screen position against the screen's width has to use this instead — the two are measured
+     * in the same space, and mixing them silently clamps a right-hand window towards the middle.
+     */
+    private fun screenWidthPx(): Int {
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(metrics)
+        return metrics.widthPixels
+    }
+
+    /**
      * Service context + overlay theme + the user's accent. Anything drawing in the accent must be
      * constructed with this, not with `this` — see AppTheme.overlayContext.
      */
@@ -261,16 +276,27 @@ class OverlayService : Service() {
         private const val TEXT_PROBE_PX = 100f
         private const val MIN_TEXT_SP = 8f
         private const val MAX_TEXT_SP = 48f
-        /**
-         * Share of the line pitch the text is fitted to. The remainder becomes padding, which is
-         * what covers the stroke and glow game text is painted with — those extend past the OCR
-         * box, so a box matched exactly to the text leaves a halo showing.
-         */
-        private const val TEXT_SHARE = 0.88f
-        /** Blocks shorter than this share of the group's tallest are treated as furigana. */
-        private const val FURIGANA_RATIO = 0.6f
         /** Characters of extra width, so the original's trailing glyphs stay covered. */
         private const val WIDTH_SLACK_CHARS = 2f
+        /** How far the docked sliver is taken below the panel's own background colour. */
+        private const val DOCK_SLIVER_DARKEN = 0.35f
+
+        // One notch of the wheel's text-size actions. These are the Settings slider's own step and
+        // bounds — see activity_settings.xml — so both controls land on the same set of values.
+        private const val TEXT_SIZE_STEP = 0.1f
+        private const val TEXT_SIZE_MIN = 0.5f
+        private const val TEXT_SIZE_MAX = 2.0f
+
+        /** How long a fired action's readout stays up. Matches the wheel's own label linger. */
+        private const val WHEEL_LABEL_LINGER_MS = 900L
+
+        /**
+         * How long a touch outside the watch window waits before being taken as the user moving
+         * the game on. Long enough for our own windows to say the touch was theirs, short enough
+         * that a real tap still clears the stale box before the screen behind it changes.
+         */
+        private const val OUTSIDE_TOUCH_GRACE_MS = 60L
+        // The sizing and spacing constants live in LineMetrics, with the arithmetic they govern.
 
         private val translationData = MutableLiveData<List<TranslationService.TranslatedBlock>>()
         private val mainHandler = Handler(Looper.getMainLooper())
@@ -432,7 +458,13 @@ class OverlayService : Service() {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 getOverlayType(),
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,  // Keep this flag
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        // Absolute screen coordinates, so params.x/y and getLocationOnScreen agree.
+                        // Three places mix them — the drag's first-move anchor flip, the fold
+                        // recentre, and the label placement — and each was off by the left inset.
+                        // Not NO_LIMITS: the drag has no clamp of its own, and the screen edge is
+                        // what currently stops the bar being pushed out of reach.
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
                 // First launch: place against the top-right edge as before. Once the user drags
@@ -513,18 +545,14 @@ class OverlayService : Service() {
         val wheel = controlPanel as? ControlWheel ?: return
         val prefs = PreferencesManager.getInstance(this)
 
-        // Restore the armed action. First run has no stored focus, so foldFavorite — which used
-        // to pick the icon shown when folded — seeds it, keeping that setting meaningful.
+        // Restore the armed action; first run has nothing stored and starts on Translate.
         val stored = prefs.wheelFocus
-        wheel.action = if (stored in ControlWheel.Action.entries.indices) {
-            ControlWheel.Action.entries[stored]
-        } else if (prefs.foldFavorite == "auto") {
-            ControlWheel.Action.AUTO
-        } else {
-            ControlWheel.Action.TRANSLATE
-        }
+        wheel.action = ControlWheel.Action.entries.getOrNull(stored) ?: ControlWheel.Action.TRANSLATE
         wheel.setAutoRunning(ScreenCaptureService.autoMode)
+        wheel.setMergeCovers(prefs.mergeAdjacentBoxes)
 
+        wheel.onTouched = { cancelPendingUserInput() }
+        wheel.onFoldChanged = { keepWheelCentreAfterResize() }
         wheel.onFocusChanged = { action -> prefs.wheelFocus = action.ordinal }
         wheel.onLabel = { label -> showWheelLabel(label) }
 
@@ -557,6 +585,24 @@ class OverlayService : Service() {
                     startAreaSelection()
                 }
 
+                ControlWheel.Action.MERGE_COVERS -> {
+                    val enabled = !prefs.mergeAdjacentBoxes
+                    prefs.mergeAdjacentBoxes = enabled
+                    wheel.setMergeCovers(enabled)
+                    Log.d(TAG, "Merge adjacent covers: $enabled")
+                    // Re-lay what's already on screen, so the effect is visible against the text
+                    // you were looking at rather than only on the next translation.
+                    translationData.value?.let { updateOverlays(it) }
+                }
+
+                ControlWheel.Action.TEXT_LARGER -> nudgeTextSize(+TEXT_SIZE_STEP)
+
+                ControlWheel.Action.TEXT_SMALLER -> nudgeTextSize(-TEXT_SIZE_STEP)
+
+                ControlWheel.Action.COPY -> copyCurrentRound()
+
+                ControlWheel.Action.OPEN_APP -> openApp()
+
                 ControlWheel.Action.DOCK -> dockControlPanel()
 
                 ControlWheel.Action.CLOSE -> {
@@ -565,6 +611,138 @@ class OverlayService : Service() {
                     stopService(Intent(this, ScreenCaptureService::class.java))
                     stopSelf()
                 }
+            }
+        }
+    }
+
+    /**
+     * Steps the text size preference and re-lays what's on screen at the new one.
+     *
+     * On the wheel rather than only in Settings because this is the setting you want while looking
+     * at the thing it affects — and the trip out to Settings and back costs the screen you were
+     * judging it against, since the game moves on.
+     *
+     * The step and the bounds are the Settings slider's own, so the two controls land on the same
+     * values instead of each having a private idea of what a size is.
+     */
+    private fun nudgeTextSize(delta: Float) {
+        val prefs = PreferencesManager.getInstance(this)
+        val next = (prefs.textSizeMultiplier + delta)
+            .coerceIn(TEXT_SIZE_MIN, TEXT_SIZE_MAX)
+        // Rounded onto the step grid: repeated float addition drifts, and the value is shown as a
+        // percentage and read back by a slider that rejects anything off-grid.
+        val snapped = Math.round(next / TEXT_SIZE_STEP) * TEXT_SIZE_STEP
+        prefs.textSizeMultiplier = snapped
+        textSizeMultiplier = snapped
+        flashWheelLabel(getString(R.string.percentage_value, Math.round(snapped * 100)))
+        translationData.value?.let { updateOverlays(it) }
+    }
+
+    private val clearWheelLabel = Runnable { showWheelLabel(null) }
+
+    /**
+     * Shows the label as a readout, then takes it away.
+     *
+     * The wheel drives its own label while cycling; this is for after firing, where the useful
+     * thing to see is the value you just changed rather than the name of what you pressed.
+     */
+    private fun flashWheelLabel(text: CharSequence) {
+        mainHandler.removeCallbacks(clearWheelLabel)
+        showWheelLabel(text)
+        mainHandler.postDelayed(clearWheelLabel, WHEEL_LABEL_LINGER_MS)
+    }
+
+    /**
+     * Puts the round currently on screen on the clipboard: the original, then the translation.
+     *
+     * Both, because either alone is the half you didn't need — the translation to paste somewhere,
+     * the original to look a word up in a dictionary — and the pair is what makes the copy worth
+     * anything once it has left the screen it came from.
+     *
+     * Blocks are joined in reading order rather than interleaved line by line. OCR splits on
+     * layout, not on sentences, so pairing them up would read as neither language.
+     */
+    private fun copyCurrentRound() {
+        val blocks = translationData.value.orEmpty()
+        if (blocks.isEmpty()) {
+            android.widget.Toast.makeText(this, R.string.nothing_to_copy, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val original = blocks.joinToString("\n") { it.originalText }.trim()
+        val translated = blocks.joinToString("\n") { it.translatedText }.trim()
+        copyTranslationToClipboard(
+            if (original.isEmpty()) translated else "$original\n\n$translated"
+        )
+    }
+
+    /**
+     * Opens the app's own screen without touching the translation that is running.
+     *
+     * A service can only start an activity from the background under one of the platform's
+     * exemptions; this one qualifies through SYSTEM_ALERT_WINDOW, which the app already holds
+     * because it draws these overlays at all. NEW_TASK is required from a non-activity context,
+     * and the two reorder flags bring the existing instance forward instead of stacking another.
+     */
+    private fun openApp() {
+        try {
+            startActivity(
+                Intent(this, MainActivity::class.java).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't open the app", e)
+        }
+    }
+
+    /**
+     * Holds the wheel's centre still while it folds or unfolds.
+     *
+     * The overlay window is WRAP_CONTENT around the strip and is positioned by an edge — `x`/`y`
+     * are measured from whichever one `gravity` names. Folding drops the two ghosts and the two
+     * chevrons, so the window loses roughly 84dp of its length, all of it from the anchored edge's
+     * far side; the armed glyph therefore slides that far towards the anchor. What should happen is
+     * what the fold looks like it is doing: the neighbours collapse *into* the armed glyph, which
+     * doesn't move.
+     *
+     * Measured rather than derived from the dp figures, because the strip's dimensions all scale
+     * with the size preference and its orientation decides which axis shrinks.
+     */
+    private fun keepWheelCentreAfterResize() {
+        if (!::controlPanel.isInitialized) return
+        val params = controlPanel.layoutParams as? WindowManager.LayoutParams ?: return
+        val before = IntArray(2)
+        controlPanel.getLocationOnScreen(before)
+        val centreX = before[0] + controlPanel.width / 2
+        val centreY = before[1] + controlPanel.height / 2
+        // The new size isn't known until the relayout the fold has just requested has run.
+        controlPanel.post {
+            if (controlPanel.width == 0 || controlPanel.height == 0) return@post
+            // Normalise to a top-left anchor first: until the panel has been dragged once it hangs
+            // off TOP|END, where a larger x means further *left* and the correction would double
+            // the error instead of cancelling it.
+            if (params.gravity != (Gravity.TOP or Gravity.START)) {
+                val here = IntArray(2)
+                controlPanel.getLocationOnScreen(here)
+                params.gravity = Gravity.TOP or Gravity.START
+                params.x = here[0]
+                params.y = here[1]
+            }
+            val now = IntArray(2)
+            controlPanel.getLocationOnScreen(now)
+            val dx = centreX - (now[0] + controlPanel.width / 2)
+            val dy = centreY - (now[1] + controlPanel.height / 2)
+            if (dx == 0 && dy == 0) return@post
+            params.x += dx
+            params.y += dy
+            try {
+                windowManager.updateViewLayout(controlPanel, params)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not re-centre the wheel after folding", e)
             }
         }
     }
@@ -581,12 +759,33 @@ class OverlayService : Service() {
      * The sliver doubles as the state readout while the wheel is hidden: green while auto-scan is
      * running, accent otherwise.
      */
+    /**
+     * The docked sliver's colour: the panel's own background, taken down a shade.
+     *
+     * The sliver is the parked bar, so it should look like it — it used to take the accent, which
+     * made the two look like unrelated pieces of chrome. Darker rather than identical because it
+     * has none of the bar's contents to distinguish it: a 7dp strip in exactly the panel colour
+     * reads as a stray edge of some window rather than as something to tap.
+     *
+     * Opaque whatever the panel's opacity is. At the panel's own setting a sliver this narrow can
+     * disappear into the game behind it, and the one thing it has to do is be findable.
+     */
+    private fun dockSliverColor(): Int {
+        val panel = PreferencesManager.getInstance(this).controlPanelBgColor or 0xFF000000.toInt()
+        return Color.rgb(
+            (Color.red(panel) * (1f - DOCK_SLIVER_DARKEN)).toInt(),
+            (Color.green(panel) * (1f - DOCK_SLIVER_DARKEN)).toInt(),
+            (Color.blue(panel) * (1f - DOCK_SLIVER_DARKEN)).toInt()
+        )
+    }
+
     private fun dockControlPanel() {
         if (dockSliverView != null) return
         val loc = IntArray(2)
         controlPanel.getLocationOnScreen(loc)
-        val screenW = resources.displayMetrics.widthPixels
-        val onLeft = loc[0] + controlPanel.width / 2 < screenW / 2
+        // Real display width, not the service's metrics: the same mismatch that pulled the wheel
+        // label back towards the middle would dock a right-hand wheel to the left edge.
+        val onLeft = loc[0] + controlPanel.width / 2 < screenWidthPx() / 2
         val sliverTop = loc[1] + controlPanel.height / 2 - dp(38)
 
         controlPanel.visibility = View.GONE
@@ -596,13 +795,18 @@ class OverlayService : Service() {
         val sliver = FrameLayout(themedContext).apply {
             isClickable = true
             setOnClickListener { undockControlPanel() }
+            // The parked bar is still the bar: reaching for it isn't advancing the game.
+            setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) cancelPendingUserInput()
+                false   // let the click listener have it
+            }
         }
         sliver.addView(
             View(themedContext).apply {
                 background = android.graphics.drawable.GradientDrawable().apply {
                     setColor(
                         if (ScreenCaptureService.autoMode) Color.parseColor("#34C759")
-                        else AppTheme.colorPrimary(themedContext)
+                        else dockSliverColor()
                     )
                     // Rounded on the inboard side only, square against the screen edge.
                     val r = dp(5).toFloat()
@@ -679,29 +883,64 @@ class OverlayService : Service() {
         }
 
         label.text = text
-        if (label.parent == null) {
-            // Parked just inboard of the wheel, on the same edge it lives on.
-            val params = WindowManager.LayoutParams(
+        val attached = label.parent != null
+        val params = (label.layoutParams as? WindowManager.LayoutParams)
+            ?: WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 getOverlayType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        // Absolute screen coordinates. Without these, x is measured from the
+                        // content frame — inside the cutout and the bars — while the wheel's
+                        // position comes from getLocationOnScreen, which is measured from the
+                        // display. See placeWheelLabel.
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                val loc = IntArray(2)
-                controlPanel.getLocationOnScreen(loc)
-                x = (loc[0] - dp(96)).coerceAtLeast(dp(8))
-                y = loc[1] + controlPanel.height / 2 - dp(14)
-            }
-            try {
-                windowManager.addView(label, params)
-                wheelLabelView = label
-            } catch (e: Exception) {
-                Log.w(TAG, "Couldn't show wheel label", e)
-            }
+            ).apply { gravity = Gravity.TOP or Gravity.START }
+        placeWheelLabel(label, params)
+        try {
+            if (attached) windowManager.updateViewLayout(label, params)
+            else windowManager.addView(label, params)
+            wheelLabelView = label
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't show wheel label", e)
         }
+    }
+
+    /**
+     * Puts the label beside the wheel, on whichever side has room for it.
+     *
+     * It used to sit at a fixed offset to the wheel's left, which is only ever right when the wheel
+     * is on the right. Dragged to the left edge, that offset ran off-screen and the clamp that
+     * caught it dropped the label straight onto the wheel it was labelling.
+     *
+     * The width is measured rather than assumed, because the label is as wide as the action's name
+     * and those differ — a guessed offset is either short for the long names or leaves a gap for
+     * the short ones, and on the left-hand placement the offset *is* the width.
+     *
+     * Everything here is in display coordinates, which is why the window carries
+     * FLAG_LAYOUT_IN_SCREEN. A window laid out without it is positioned from the content frame,
+     * inside the cutout and the system bars, while [View.getLocationOnScreen] reports from the
+     * display — so the label landed a left inset further right than asked. That could only show up
+     * on one side: to the right of a left-hand wheel it reads as extra clearance, to the left of a
+     * right-hand one it walks straight under the bar.
+     */
+    private fun placeWheelLabel(label: TextView, params: WindowManager.LayoutParams) {
+        val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        label.measure(unspecified, unspecified)
+        val labelW = label.measuredWidth
+        val labelH = label.measuredHeight
+        val gap = dp(8)
+        val screenW = screenWidthPx()
+        val loc = IntArray(2)
+        controlPanel.getLocationOnScreen(loc)
+
+        val onLeftHalf = loc[0] + controlPanel.width / 2 < screenW / 2
+        val x = if (onLeftHalf) loc[0] + controlPanel.width + gap else loc[0] - labelW - gap
+        params.x = x.coerceIn(gap, (screenW - labelW - gap).coerceAtLeast(gap))
+        params.y = loc[1] + controlPanel.height / 2 - labelH / 2
     }
 
     // ===== IN-OVERLAY AREA SELECTION =====
@@ -710,41 +949,39 @@ class OverlayService : Service() {
         if (areaSelectionView != null) return
 
         val selector = AreaSelectionOverlay(themedContext)
-
-        val hint = TextView(this).apply {
-            text = getString(R.string.select_area_hint)
-            setTextColor(Color.parseColor("#A6FFFFFF"))
-            textSize = 13f
-            gravity = Gravity.CENTER
-        }
+        // Open on the area already in use, so reopening the picker is a correction rather than a
+        // fresh start. The window is full-screen with no limits, so screen coordinates are the
+        // view's own — the same space sendAreaToCapture hands back.
+        val existing = activeTranslationArea
+            ?: PreferencesManager.getInstance(this).getActiveTranslationArea()
+        selector.setSelection(existing)
 
         // "OK / Cancel" becomes Cancel · Full screen · Use area, which finally gives the
         // clear_area string a place in the flow — previously it existed with nothing to trigger it.
-        val cancelBtn = areaButton(getString(android.R.string.cancel), primary = false)
-        val fullScreenBtn = areaButton(getString(R.string.clear_area_short), primary = false)
-        val okBtn = areaButton(getString(R.string.use_area), primary = true)
+        val cancelBtn = areaAction(R.drawable.ic_close, android.R.string.cancel, primary = false)
+        val fullScreenBtn =
+            areaAction(R.drawable.ic_fullscreen, R.string.clear_area_short, primary = false)
+        val okBtn = areaAction(R.drawable.ic_ios_check, R.string.use_area, primary = true)
 
-        val buttonRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(cancelBtn, LinearLayout.LayoutParams(0, dp(44), 1f))
-            addView(fullScreenBtn, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
-                marginStart = dp(10)
-            })
-            addView(okBtn, LinearLayout.LayoutParams(0, dp(44), 1.2f).apply {
-                marginStart = dp(10)
-            })
-        }
-
+        // Parked in the corner instead of spanning the bottom edge. The bar used to be full width
+        // and bottom-aligned, which put the whole bottom strip of the screen out of reach — and a
+        // dialogue box, the thing most worth selecting, usually sits exactly there. It hides while
+        // a drag is in progress, so what matters is only where a drag can *start*.
         val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#B8141416"))
-            setPadding(dp(16), dp(14), dp(16), dp(18))
-            addView(hint, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = dp(12) })
-            addView(buttonRow, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ))
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(28).toFloat()
+                setColor(Color.parseColor("#D9141416"))
+            }
+            addView(cancelBtn, LinearLayout.LayoutParams(dp(44), dp(44)))
+            addView(fullScreenBtn, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                marginStart = dp(6)
+            })
+            addView(okBtn, LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                marginStart = dp(6)
+            })
         }
 
         val container = FrameLayout(this).apply {
@@ -758,10 +995,27 @@ class OverlayService : Service() {
             addView(
                 bar,
                 FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
                     FrameLayout.LayoutParams.WRAP_CONTENT
-                ).apply { gravity = Gravity.BOTTOM }
+                ).apply {
+                    gravity = Gravity.BOTTOM or Gravity.END
+                    marginEnd = dp(16)
+                    bottomMargin = dp(16)
+                }
             )
+        }
+
+        // The window is LAYOUT_NO_LIMITS, so it extends under the navigation bar and a corner-
+        // parked cluster would sit on top of it — where the system takes the touches. Insets push
+        // it clear; if none arrive, the margins above are what's left.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(bar) { v, insets ->
+            val sys = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            (v.layoutParams as? FrameLayout.LayoutParams)?.let {
+                it.bottomMargin = dp(16) + sys.bottom
+                it.marginEnd = dp(16) + sys.right
+                v.requestLayout()
+            }
+            insets
         }
 
         val params = WindowManager.LayoutParams(
@@ -806,27 +1060,36 @@ class OverlayService : Service() {
     }
 
     /** Rounded 44dp action for the area-selection bar; the primary one carries the accent. */
-    private fun areaButton(label: String, primary: Boolean): TextView = TextView(this).apply {
-        text = label
-        gravity = Gravity.CENTER
-        textSize = 16f
-        setTextColor(
-            if (primary) AppTheme.contrastOn(AppTheme.colorPrimary(themedContext))
-            else Color.WHITE
-        )
-        setTypeface(
-            typeface,
-            if (primary) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL
-        )
-        background = android.graphics.drawable.GradientDrawable().apply {
-            cornerRadius = dp(12).toFloat()
-            setColor(
-                if (primary) AppTheme.colorPrimary(themedContext)
-                else Color.parseColor("#47767680")
+    /**
+     * One action in the area picker's corner cluster: a glyph on a 44dp circle.
+     *
+     * Icons rather than the labels these replaced, because the labels are what made the bar wide
+     * enough to need the whole bottom edge. 44dp is the smallest target worth offering, so the
+     * cluster shrinks as far as it can without becoming fiddly — the glyph is 22dp inside it, and
+     * the rest is touch area.
+     *
+     * The label survives as the content description: it is what a screen reader announces, and
+     * it's the only thing left saying which of the three this is.
+     */
+    private fun areaAction(iconRes: Int, labelRes: Int, primary: Boolean): ImageView =
+        ImageView(themedContext).apply {
+            setImageResource(iconRes)
+            contentDescription = getString(labelRes)
+            val inset = dp(11)
+            setPadding(inset, inset, inset, inset)
+            imageTintList = android.content.res.ColorStateList.valueOf(
+                if (primary) AppTheme.contrastOn(AppTheme.colorPrimary(themedContext))
+                else Color.WHITE
             )
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(
+                    if (primary) AppTheme.colorPrimary(themedContext)
+                    else Color.parseColor("#3DFFFFFF")
+                )
+            }
+            isClickable = true
         }
-        isClickable = true
-    }
 
     /** Tells the capture service to go back to the full screen. */
     private fun clearTranslationArea() {
@@ -1061,6 +1324,43 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * Brings the overlays back to full opacity outside the fade pair, and tells the fade pair so.
+     *
+     * A new result arrives while the overlays are still faded out for the capture that produced it
+     * — window mode deliberately skips the immediate fade-in so the old box doesn't flash before
+     * the new one — so whoever renders it has to restore the alpha itself. Clearing [faded] is the
+     * half that was missing: leave it set and the *next* `fadeOutForCapture` takes its
+     * already-faded early return, the box stays on screen through the capture, and in-place mode
+     * then OCRs its own translation off the frame.
+     */
+    private fun restoreOverlayAlpha() {
+        faded = false
+        if (::translationOverlay.isInitialized) translationOverlay.alpha = 1f
+        if (::inPlaceOverlay.isInitialized)   inPlaceOverlay.alpha = 1f
+    }
+
+    /**
+     * What a touch outside our windows means: the user has moved the game on, so the shown
+     * translation is stale and the next scan should not treat the screen as unchanged.
+     */
+    private val userInputRunnable = Runnable {
+        clearInPlaceImmediately()      // hide the stale box at once, before the screen changes
+        ScreenCaptureService.onUserInput()
+    }
+
+    /**
+     * Called by anything of ours that was touched, to take back the conclusion the touch watch
+     * jumped to.
+     *
+     * Adjusting the bar is not advancing the game — and it is exactly when you are adjusting the
+     * bar that you are looking at the translation, so clearing it there loses the thing the
+     * adjustment was for.
+     */
+    private fun cancelPendingUserInput() {
+        mainHandler.removeCallbacks(userInputRunnable)
+    }
+
     // Tiny window that gets ACTION_OUTSIDE for any tap elsewhere (without consuming it),
     // so we can detect when the user advances/changes the screen — even under the box.
     private fun createTouchWatch() {
@@ -1077,10 +1377,16 @@ class OverlayService : Service() {
             x = 0; y = 0
         }
         watch.setOnTouchListener { _, event ->
-            Log.d(TAG, "touchWatch action=${event.action}")
             if (event.action == MotionEvent.ACTION_OUTSIDE) {
-                clearInPlaceImmediately()      // hide stale box at once, before the screen changes
-                ScreenCaptureService.onUserInput()
+                // Deferred, not immediate: "outside" means outside this 1x1 window, so it fires
+                // for touches on our own control bar as much as for touches on the game. Anything
+                // of ours that gets touched cancels this before it runs — see
+                // [cancelPendingUserInput] — which is why the decision waits a beat instead of
+                // being made here. The alternative, testing the coordinates against the bar's
+                // rect, relies on ACTION_OUTSIDE carrying usable raw coordinates, and the order
+                // the two windows are told about one touch isn't guaranteed either way.
+                mainHandler.removeCallbacks(userInputRunnable)
+                mainHandler.postDelayed(userInputRunnable, OUTSIDE_TOUCH_GRACE_MS)
             }
             false // never consume — the tap still reaches the app underneath
         }
@@ -1111,7 +1417,6 @@ class OverlayService : Service() {
                 if (inPlaceOverlay.visibility == View.VISIBLE && inPlaceOverlay.width > 0) {
                     inPlaceOverlay.getLocationOnScreen(inPlaceLoc)
                     inPlaceLocValid = true
-                    Log.d(TAG, "inPlaceLoc cached: ${inPlaceLoc[0]}, ${inPlaceLoc[1]}")   // ← 顺手加，验证用
                 }
             }
             inPlaceOverlay.visibility = View.GONE
@@ -1123,13 +1428,32 @@ class OverlayService : Service() {
     /** 把几何重叠或紧邻（水平有交集且竖直间隙很小）的 block 并成组。 */
     private fun groupOverlapping(
         items: List<TranslationService.TranslatedBlock>
-    ): List<List<TranslationService.TranslatedBlock>> {
+    ): List<List<TranslationService.TranslatedBlock>> =
+        groupRelated(items, { it.boundingBox }, ::related)
+
+    /** Union-find over anything carrying a rect, joined transitively by [joined]. */
+    private fun <T> groupRelated(
+        items: List<T>, rectOf: (T) -> Rect, joined: (Rect, Rect) -> Boolean
+    ): List<List<T>> {
         val n = items.size
         val parent = IntArray(n) { it }
         fun find(x: Int): Int { var r = x; while (parent[r] != r) r = parent[r]; return r }
         for (i in 0 until n) for (j in i + 1 until n)
-            if (related(items[i].boundingBox, items[j].boundingBox)) parent[find(i)] = find(j)
+            if (joined(rectOf(items[i]), rectOf(items[j]))) parent[find(i)] = find(j)
         return items.indices.groupBy { find(it) }.values.map { idx -> idx.map { items[it] } }
+    }
+
+    /**
+     * Two original lines belong to the same run: same column, and no more than [maxGapPx] apart.
+     *
+     * Measured on the OCR rects rather than the covers built from them, because the threshold is
+     * the user's — they set it against the spacing they can see in the game, and the covers are a
+     * pitch tall each, so the space between *them* is already close to nothing.
+     */
+    private fun verticallyAdjacent(a: Rect, b: Rect, maxGapPx: Int): Boolean {
+        if (minOf(a.right, b.right) - maxOf(a.left, b.left) <= 0) return false
+        val vGap = maxOf(a.top, b.top) - minOf(a.bottom, b.bottom)   // <0 when they overlap
+        return vGap <= maxGapPx
     }
 
     private fun related(a: Rect, b: Rect): Boolean {
@@ -1146,7 +1470,13 @@ class OverlayService : Service() {
         val left: Int,
         val top: Int,
         val width: Int,
-        val height: Int
+        val height: Int,
+        /** The cover colour, kept so a merged backdrop can be drawn in it. */
+        val bgColor: Int,
+        /** The OCR rect this covers, which is what the merge threshold is measured against. */
+        val source: Rect,
+        /** Width without the cosmetic slack — the floor a trim may not go below. */
+        val minWidth: Int
     )
 
     private fun renderInPlace(translations: List<TranslationService.TranslatedBlock>) {
@@ -1162,7 +1492,6 @@ class OverlayService : Service() {
         val prefs = PreferencesManager.getInstance(this)
         val screenW = if (inPlaceOverlay.width > 0) inPlaceOverlay.width
         else resources.displayMetrics.widthPixels
-        val refH = translations.maxOf { it.boundingBox.height() }.coerceAtLeast(1)
 
         // Build and measure every box first; positioning happens in one pass afterwards so
         // overlaps between boxes can be resolved with all of them known.
@@ -1173,79 +1502,64 @@ class OverlayService : Service() {
             // consecutive tops, and its own small height lowers the median height — so the body
             // text came out sized to the ruby rather than to itself. Measure from the body lines
             // only, whether or not the furigana ends up being drawn.
-            val body = bodyLines(group)
-            val pitch = typicalPitch(body)
+            val body = bodyLines(group).sortedBy { it.boundingBox.top }
+            val slot = lineSlot(body)
+            val bodyH = bodyHeight(body)
             if (prefs.mergeOverlapBoxes) {
                 // 模式B：合并重叠框、保留注音（单背景，组内各行透明叠加）
-                boxes += buildMergedBox(group, body, pitch, screenW, loc, prefs)
+                boxes += buildMergedBox(group, slot, bodyH, screenW, loc, prefs)
             } else {
                 // 模式A：独立框、丢弃注音（组内丢掉矮块，其余各自成框）
                 for (t in body) {
-                    boxes += buildSeparateBox(t, pitch, screenW, loc, prefs)
+                    boxes += buildSeparateBox(t, slot, bodyH, screenW, loc, prefs)
                 }
             }
         }
-        placeWithoutOverlap(boxes)
+        placeWithoutOverlap(boxes, prefs.mergeAdjacentBoxes, dp(prefs.mergeAdjacentGapDp))
         inPlaceOverlay.visibility = View.VISIBLE
     }
 
     /**
      * The group's body lines — everything that isn't furigana.
      *
-     * Ruby text is reliably much shorter than what it annotates, so the tallest block in the group
-     * gives a threshold without needing to know which script is involved.
+     * The reference height used to be the group's tallest block, which a single line can poison: an
+     * OCR line box is only as tall as the ink in it, and full-width brackets and long dashes reach
+     * well past the kana around them. The threshold rose with such a line and a perfectly ordinary
+     * short one got discarded as ruby, leaving a line-sized hole mid-paragraph for the pitch to
+     * measure across. See [LineMetrics.bodyHeight].
      */
     private fun bodyLines(
         group: List<TranslationService.TranslatedBlock>
     ): List<TranslationService.TranslatedBlock> {
-        val maxH = group.maxOf { it.boundingBox.height() }
-        return group.filter { it.boundingBox.height() >= maxH * FURIGANA_RATIO }
+        val reference = bodyHeight(group)
+        return group.filterNot { LineMetrics.isFurigana(it.lineH, reference) }
             .ifEmpty { group }
     }
 
-    /**
-     * Representative line height for a group: the median, so one unusually tall OCR box doesn't
-     * drag the whole paragraph's size with it.
-     */
-    private fun typicalHeight(group: List<TranslationService.TranslatedBlock>): Int =
-        median(group.map { it.boundingBox.height() }).coerceAtLeast(1)
+    private fun bodyHeight(group: List<TranslationService.TranslatedBlock>): Int =
+        LineMetrics.bodyHeight(group.map { it.lineH })
 
     /**
-     * True median. `sorted[size / 2]` — which this used to be — returns the *upper* of the two
-     * middle samples on an even-sized list, so a two-line group took the larger of its two
-     * measurements every time. That biased pitch upward, and an inflated pitch inflates both the
-     * font and the box: a three-block group measuring gaps of 50 and 35 came out at 50 instead
-     * of 42, ~11% taller than the paragraph around it.
+     * The same ruby filtering [bodyLines] does per group, over a flat list.
+     *
+     * Grouping first is what makes it work: ruby is only short *relative to the line it annotates*,
+     * and a heading elsewhere on screen can be shorter than body text over here. Measured against
+     * the whole screen, the short lines of a small paragraph would look like ruby.
+     *
+     * Input order is preserved rather than re-sorted — for the merged card that order is the
+     * reading order the OCR returned, and it is not this function's business to second-guess it.
      */
-    private fun median(values: List<Int>): Int {
-        if (values.isEmpty()) return 0
-        val sorted = values.sorted()
-        val mid = sorted.size / 2
-        return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2
+    private fun withoutFurigana(
+        all: List<TranslationService.TranslatedBlock>
+    ): List<TranslationService.TranslatedBlock> {
+        if (all.size < 2) return all
+        val body = groupOverlapping(all).flatMapTo(HashSet()) { bodyLines(it) }
+        return all.filter { it in body }
     }
 
-    /**
-     * Line pitch — the distance from one line's top to the next's — which is what a box has to
-     * be to tile the original exactly.
-     *
-     * Sizing boxes to the OCR height instead was the source of the drift: an OCR box hugs its
-     * glyphs, so it is shorter than the pitch by the line spacing. Fitting to the height meant
-     * every box was that spacing too short to reach its neighbour (a visible stripe of original
-     * between covers) while the padding needed to hide the glyph glow simultaneously pushed the
-     * box past the next line's top, so the overlap pass shoved it down — and that shove
-     * accumulated line after line.
-     *
-     * With the box exactly one pitch tall and anchored one padding above its OCR top, consecutive
-     * boxes meet edge to edge: no stripe, and nothing for the overlap pass to resolve.
-     */
-    private fun typicalPitch(group: List<TranslationService.TranslatedBlock>): Int {
-        val fallback = (typicalHeight(group) * 1.25f).toInt()
-        val tops = group.map { it.boundingBox.top }.sorted()
-        if (tops.size < 2) return fallback
-        val gaps = tops.zipWithNext { a, b -> b - a }.filter { it > 0 }
-        if (gaps.isEmpty()) return fallback
-        return median(gaps).coerceAtLeast(typicalHeight(group))
-    }
+    /** One slot for the whole group; see [LineMetrics.lineSlot] for why it isn't per line. */
+    private fun lineSlot(body: List<TranslationService.TranslatedBlock>): Int =
+        LineMetrics.lineSlot(body.map { it.boundingBox.top }, body.map { it.lineH })
 
     /**
      * Text size that renders one line exactly as tall as the OCR box it replaces.
@@ -1286,14 +1600,75 @@ class OverlayService : Service() {
     private fun measuredBoxWidth(
         view: View, originalWidth: Int, screenW: Int, textSizePx: Float
     ): Int {
-        val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        view.measure(unspecified, unspecified)
         // A few extra characters: the original's own glyphs can overhang its reported box, and a
         // box sized exactly to the text leaves that last stroke uncovered. For CJK one character
         // is one em, i.e. the text size.
         val slack = (textSizePx * WIDTH_SLACK_CHARS).toInt()
-        return (maxOf(originalWidth, view.measuredWidth) + slack).coerceAtMost(screenW)
+        return (tightBoxWidth(view, originalWidth, screenW) + slack).coerceAtMost(screenW)
     }
+
+    /**
+     * The same width without the slack: what the box actually needs to cover its original and hold
+     * its text. [trimToLineNeighbour] may take the slack back, but must not cut into this.
+     */
+    private fun tightBoxWidth(view: View, originalWidth: Int, screenW: Int): Int {
+        val unspecified = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        view.measure(unspecified, unspecified)
+        return maxOf(originalWidth, view.measuredWidth).coerceAtMost(screenW)
+    }
+
+    /**
+     * Height one rendered line occupies at [textSizePx] — ascent..descent, which is what a
+     * TextView with `includeFontPadding = false` lays out on.
+     *
+     * Not the same as the text size: for a typical face the two differ by ~16%, so using the size
+     * where the line height belongs leaves the padding around it that much too generous.
+     */
+    private fun lineHeightAt(textSizePx: Float): Int {
+        val paint = android.text.TextPaint().apply {
+            typeface = resultTypeface()
+            textSize = textSizePx
+        }
+        val metrics = paint.fontMetrics
+        return (metrics.descent - metrics.ascent).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * A line's own height, measured across its quad, falling back to its bounding box.
+     *
+     * The accessibility path reports node bounds and has no quad, and an older cached result won't
+     * carry one either, so the fallback stays.
+     */
+    private val TranslationService.TranslatedBlock.lineH: Int
+        get() = if (lineHeight > 0) lineHeight else boundingBox.height()
+
+    /**
+     * The height to fit a line's *type* to: its own ink, capped against the group's body height.
+     *
+     * Size and spacing are two different measurements and only one of them can come from the line
+     * itself. The slot — how tall the cover has to be to tile — must be a group figure, because a
+     * single line's top and bottom are both moved by whatever punctuation it happens to contain.
+     * The size cannot be: a title, its reading and a class line frequently land in one group (the
+     * gap between them sits right on [related]'s threshold and tips either way with a few pixels),
+     * and a group figure renders all three at one size, which is the one thing that is unmistakably
+     * wrong when you look at it.
+     *
+     * So the size comes from the line, and [LineMetrics.inkHeight]'s cap makes that safe.
+     */
+    private fun inkHeight(block: TranslationService.TranslatedBlock, bodyH: Int): Int =
+        LineMetrics.inkHeight(block.lineH, bodyH)
+
+    /**
+     * Top edge that puts a [boxHeight]-tall cover's centre on [source]'s centre.
+     *
+     * The two are never the same height — the cover is a slot tall where the OCR rect hugs the
+     * glyphs, and a wrapped translation is taller still — so their top edges are not the thing to
+     * match. Line up the centres and the translation sits on the line it replaces regardless of
+     * how the two heights work out; match the tops and every cover hangs low by half the
+     * difference, which is what put the text a few pixels under the original it was covering.
+     */
+    private fun centredOn(source: Rect, boxHeight: Int, loc: IntArray): Int =
+        (source.centerY() - loc[1] - boxHeight / 2).coerceAtLeast(0)
 
     /** Height the box needs once its width is fixed and the text has wrapped. */
     private fun measuredBoxHeight(view: View, width: Int): Int {
@@ -1306,14 +1681,13 @@ class OverlayService : Service() {
 
     /** 模式A：单个 block 独立框。 */
     private fun buildSeparateBox(
-        t: TranslationService.TranslatedBlock, pitch: Int, screenW: Int,
+        t: TranslationService.TranslatedBlock, pitch: Int, bodyH: Int, screenW: Int,
         loc: IntArray, prefs: PreferencesManager
     ): PlannedBox {
         val rect = t.boundingBox
         val bg = (if (t.bgColor != 0) t.bgColor else prefs.translationBgColor) or 0xFF000000.toInt()
-        // Fit the text to most of the pitch, leaving a slice for padding. The Text size preference
-        // multiplies that, so it can push the text past what was reserved.
-        val fitted = textSizeForBox((pitch * TEXT_SHARE).toInt())
+        val ink = inkHeight(t, bodyH)
+        val fitted = textSizeForBox(ink)
         val padH = dp(4)
         val tv = TextView(this).apply {
             text = t.translatedText
@@ -1340,69 +1714,88 @@ class OverlayService : Service() {
         tv.setPadding(padH, padV, padH, padV)
         tv.minHeight = pitch
 
+        val minWidth = tightBoxWidth(tv, rect.width(), screenW)
         val boxWidth = measuredBoxWidth(tv, rect.width(), screenW, fitted)
         // One pitch unless the translation genuinely wrapped, which legitimately needs more.
         val boxHeight = maxOf(pitch, measuredBoxHeight(tv, boxWidth))
+        if (BuildConfig.DEBUG) {
+            // Everything the fit is derived from, so a line that comes out the wrong size can be
+            // read off a log instead of guessed at from a screenshot.
+            Log.d(
+                TAG,
+                "inPlace ocr=${rect.width()}x${rect.height()}@${rect.left},${rect.top} " +
+                        "quad=${t.lineHeight} ink=$ink slot=$pitch " +
+                        "size=${"%.1f".format(fitted)} " +
+                        "box=${boxWidth}x$boxHeight " +
+                        "\"${t.translatedText.take(12)}\""
+            )
+        }
         // Offset by the padding so the *text* lands on the original, not the box's edge.
         val left = (rect.left - loc[0] - padH).coerceIn(0, (screenW - boxWidth).coerceAtLeast(0))
-        val top = (rect.top - loc[1] - padV).coerceAtLeast(0)
-        return PlannedBox(tv, left, top, boxWidth, boxHeight)
-    }
-
-    /** 模式B：一组重叠 block 合一个框，单背景，组内各行透明叠加（保留注音）。 */
-    private fun buildMergedBox(
-        group: List<TranslationService.TranslatedBlock>,
-        body: List<TranslationService.TranslatedBlock>,
-        pitch: Int, screenW: Int,
-        loc: IntArray, prefs: PreferencesManager
-    ): PlannedBox {
-        val union = Rect(group.first().boundingBox)
-        group.forEach { union.union(it.boundingBox) }
-        val bg = (group.firstOrNull { it.bgColor != 0 }?.bgColor
-            ?: prefs.translationBgColor) or 0xFF000000.toInt()
-        val fitted = textSizeForBox((pitch * TEXT_SHARE).toInt())
-        val padV = ((pitch - fitted).toInt() / 2).coerceAtLeast(0)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(4), padV, dp(4), padV)
-            background = inPlaceBoxBackground(bg)
-            elevation = dp(3).toFloat()
-        }
-        // Body lines share one size; furigana keeps its own, proportionally smaller one — this
-        // mode exists to preserve the ruby, and rendering it at body size would defeat that.
-        val bodyH = typicalHeight(body)
-        for (t in group.sortedBy { it.boundingBox.top }) {
-            val isBody = t in body
-            val lineSize = if (isBody) fitted else textSizeForBox(
-                (pitch * TEXT_SHARE *
-                        (t.boundingBox.height().toFloat() / bodyH).coerceIn(0.4f, 1f)).toInt()
-            )
-            container.addView(TextView(this).apply {
-                text = t.translatedText
-                setTextColor(prefs.translationTextColor)
-                typeface = resultTypeface()
-                setTextSize(TypedValue.COMPLEX_UNIT_PX, lineSize)
-                includeFontPadding = false
-                gravity = Gravity.CENTER_VERTICAL
-            })
-        }
-
-        val boxWidth = measuredBoxWidth(container, union.width(), screenW, fitted)
-        val boxHeight = measuredBoxHeight(container, boxWidth)
-        // Offset by the padding so the *text* lands on the original, not the box's edge.
-        val left = (union.left - loc[0] - dp(4)).coerceIn(0, (screenW - boxWidth).coerceAtLeast(0))
-        val top = (union.top - loc[1] - padV).coerceAtLeast(0)
-        return PlannedBox(container, left, top, boxWidth, boxHeight)
+        val top = centredOn(rect, boxHeight, loc)
+        return PlannedBox(tv, left, top, boxWidth, boxHeight, bg, rect, minWidth)
     }
 
     /**
-     * Adds the boxes top-down, pushing any that would land on an already-placed one below it.
+     * 模式B：一组重叠 block 合一个框，单背景，组内各行透明叠加（保留注音）。
      *
-     * A translation is routinely taller than the line it replaces — it wraps where the original
-     * didn't — so anchoring every box to its source rect stacks them on top of each other. Since
-     * in-place mode is meant to cover the original text, keeping a box's left edge and sliding it
-     * down is the least disruptive way out.
+     * Sized the same way as the separate-box path: each line's type comes from its own capped ink
+     * height, and its share of the stack is that ink's share of the group's body height. Ruby falls
+     * out of it rather than needing a rule of its own — it is half the height of what it annotates,
+     * so it gets half the size and half the room, which is what this mode exists to preserve.
+     *
+     * Each child is given an explicit height, so the stack reproduces the original's spacing rather
+     * than whatever the text happens to measure — which is what lets the container's total height
+     * match the span it covers.
      */
+    private fun buildMergedBox(
+        group: List<TranslationService.TranslatedBlock>,
+        slot: Int, bodyH: Int, screenW: Int,
+        loc: IntArray, prefs: PreferencesManager
+    ): PlannedBox {
+        val ordered = group.sortedBy { it.boundingBox.top }
+        val union = Rect(ordered.first().boundingBox)
+        ordered.forEach { union.union(it.boundingBox) }
+        val bg = (ordered.firstOrNull { it.bgColor != 0 }?.bgColor
+            ?: prefs.translationBgColor) or 0xFF000000.toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // No vertical padding: each line's slot already carries its own leading, so padding
+            // here would push the stack past the span it is covering.
+            setPadding(dp(4), 0, dp(4), 0)
+            background = inPlaceBoxBackground(bg)
+            elevation = dp(3).toFloat()
+        }
+        var widestSize = 0f
+        for (i in ordered.indices) {
+            val ink = inkHeight(ordered[i], bodyH)
+            val lineSize = textSizeForBox(ink)
+            // The line's share of the stack, in the same proportion its ink is to the body's, and
+            // never less than the rendered line needs.
+            val lineSlot = (slot.toFloat() * ink / bodyH).toInt()
+                .coerceAtLeast(lineHeightAt(lineSize))
+            widestSize = maxOf(widestSize, lineSize)
+            container.addView(
+                TextView(this).apply {
+                    text = ordered[i].translatedText
+                    setTextColor(prefs.translationTextColor)
+                    typeface = resultTypeface()
+                    setTextSize(TypedValue.COMPLEX_UNIT_PX, lineSize)
+                    includeFontPadding = false
+                    gravity = Gravity.CENTER_VERTICAL
+                },
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, lineSlot)
+            )
+        }
+
+        val minWidth = tightBoxWidth(container, union.width(), screenW)
+        val boxWidth = measuredBoxWidth(container, union.width(), screenW, widestSize)
+        val boxHeight = measuredBoxHeight(container, boxWidth)
+        val left = (union.left - loc[0] - dp(4)).coerceIn(0, (screenW - boxWidth).coerceAtLeast(0))
+        val top = centredOn(union, boxHeight, loc)
+        return PlannedBox(container, left, top, boxWidth, boxHeight, bg, union, minWidth)
+    }
+
     /**
      * Places the boxes top-down, moving any that would land on an already-placed one below it.
      *
@@ -1416,25 +1809,34 @@ class OverlayService : Service() {
      * Left edges are preserved: in-place mode is about covering the original, and moving sideways
      * would break the correspondence with the line underneath.
      */
-    private fun placeWithoutOverlap(boxes: List<PlannedBox>) {
+    private fun placeWithoutOverlap(boxes: List<PlannedBox>, mergeCovers: Boolean, maxGapPx: Int) {
         val gap = dp(2)
-        val placed = mutableListOf<Rect>()
+        val laidOut = mutableListOf<Pair<PlannedBox, Rect>>()
         for (box in boxes.sortedWith(compareBy({ it.top }, { it.left }))) {
             val rect = Rect(box.left, box.top, box.left + box.width, box.top + box.height)
+            trimToLineNeighbour(box, rect, boxes, gap)
             // Each shove can push the box onto a different neighbour, so repeat until it lands
             // clear. Bounded in case a pathological set of rects would otherwise loop.
             var moved = true
             var guard = 0
             while (moved && guard++ < 32) {
                 moved = false
-                for (other in placed) {
-                    if (Rect.intersects(rect, other)) {
-                        rect.offsetTo(rect.left, other.bottom + gap)
+                for ((other, otherRect) in laidOut) {
+                    // Sliding down is for a box that landed on the line below. Two halves of one
+                    // line are not that: they sit side by side and belong at the same height, and
+                    // the trim above has already kept them apart horizontally.
+                    if (onSameLine(box.source, other.source)) continue
+                    if (Rect.intersects(rect, otherRect)) {
+                        rect.offsetTo(rect.left, otherRect.bottom + gap)
                         moved = true
                     }
                 }
             }
-            placed += rect
+            laidOut += box to rect
+        }
+        // Backdrops go in first so they sit under the text they cover.
+        if (mergeCovers) addMergedCovers(laidOut, maxGapPx)
+        for ((box, rect) in laidOut) {
             inPlaceOverlay.addView(
                 box.view,
                 FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
@@ -1445,10 +1847,83 @@ class OverlayService : Service() {
         }
     }
 
+    /**
+     * Whether two OCR rects are two pieces of one line of the original.
+     *
+     * OCR splits a line wherever the layout leaves a wide enough gap — a centred second half, a
+     * tabbed column — and the pieces come back as separate blocks at the same height, in different
+     * groups, since [related] joins only what overlaps horizontally.
+     */
+    private fun onSameLine(a: Rect, b: Rect): Boolean =
+        LineMetrics.onSameLine(a.top, a.bottom, b.top, b.bottom)
+
+    /**
+     * Stops a cover short of the next piece of the same line, instead of letting it run underneath.
+     *
+     * The width carries a couple of characters of slack so the original's overhanging strokes stay
+     * covered. Against a line the OCR split in two, that slack reaches into the right-hand piece —
+     * and an overlap is all [placeWithoutOverlap] looks at, so it would push one of them onto the
+     * line below. Which one is arbitrary: they are sorted by top, and their tops differ by a few
+     * pixels whenever the two pieces' text measures to different heights, as it does the moment one
+     * of them contains a character the font has to fall back for.
+     *
+     * Only the slack is given back — never the width the box needs to cover its own original.
+     */
+    private fun trimToLineNeighbour(
+        box: PlannedBox, rect: Rect, all: List<PlannedBox>, gap: Int
+    ) {
+        val nextLeft = all.asSequence()
+            .filter { it !== box && onSameLine(box.source, it.source) }
+            .filter { it.source.left > box.source.left }
+            .minOfOrNull { it.left } ?: return
+        rect.right = rect.right.coerceAtMost(
+            (nextLeft - gap).coerceAtLeast(rect.left + box.minWidth)
+        )
+    }
+
+    /**
+     * Covers each run of vertically adjacent lines with a single backdrop instead of one per line.
+     *
+     * Only what blots out the original is merged. The lines keep the positions the pass above gave
+     * them, so each translation still sits on the line it replaces and is only as wide as it needs
+     * to be — the backdrop spans the run's union, which is the widest of them.
+     *
+     * This is the one thing [placeWithoutOverlap] deliberately does not do. Erasing the seams by
+     * moving or stretching the *boxes* was tried and reverted: the original's leading isn't
+     * uniform, so filling it produced ragged blocks. Drawing one rectangle behind them removes the
+     * seams without touching the geometry that made the boxes line up in the first place.
+     *
+     * @param maxGapPx how far apart two original lines may be and still share a backdrop.
+     */
+    private fun addMergedCovers(laidOut: List<Pair<PlannedBox, Rect>>, maxGapPx: Int) {
+        val runs = groupRelated(
+            laidOut, { it.first.source }, { a, b -> verticallyAdjacent(a, b, maxGapPx) }
+        )
+        for (run in runs) {
+            val union = Rect(run.first().second)
+            run.forEach { union.union(it.second) }
+            val color = run.first().first.bgColor
+            val backdrop = View(this).apply {
+                background = inPlaceBoxBackground(color)
+                // Under the lines, which carry dp(3), so the run reads as one surface.
+                elevation = dp(2).toFloat()
+            }
+            inPlaceOverlay.addView(
+                backdrop,
+                FrameLayout.LayoutParams(union.width(), union.height()).apply {
+                    leftMargin = union.left
+                    topMargin = union.top
+                }
+            )
+            // Their own covers would otherwise draw their hairlines across the merged surface,
+            // which is exactly the seam this removes.
+            run.forEach { (box, _) -> box.view.background = null }
+        }
+    }
+
     private fun updateOverlays(translations: List<TranslationService.TranslatedBlock>) {
         if (isPaused) return
-        if (::translationOverlay.isInitialized) translationOverlay.alpha = 1f
-        if (::inPlaceOverlay.isInitialized)   inPlaceOverlay.alpha = 1f
+        restoreOverlayAlpha()
         PerfTrace.displayed()
         if (PreferencesManager.getInstance(this).inPlaceMode) {
             translationOverlay.visibility = View.GONE
@@ -1464,11 +1939,19 @@ class OverlayService : Service() {
         translatedViews.clear() // Clear the map as we no longer store individual views
 
         // === New Logic: Merge Translations and Create a Single Draggable Block ===
-        if (translations.isNotEmpty()) {
+        // `Translate furigana` is a rendering choice, and this is a renderer: with it off, in-place
+        // mode drops ruby per group while this path put every block into the card regardless, so
+        // the setting appeared to do nothing here. The blocks are still translated either way —
+        // the filtering that would save those tokens has to happen before the request, which is
+        // upstream of anything the overlay can see.
+        val shown =
+            if (PreferencesManager.getInstance(this).mergeOverlapBoxes) translations
+            else withoutFurigana(translations)
+        if (shown.isNotEmpty()) {
             val stringBuilder = StringBuilder()
             val combinedOriginalRect = Rect() // Optional: calculate combined bounding box if needed
 
-            for (translation in translations) {
+            for (translation in shown) {
                 stringBuilder.append(translation.translatedText).append("\n") // Combine translated text
                 // Optional: update combinedOriginalRect to encompass all block bounding boxes
                 // if (combinedOriginalRect.isEmpty) {
@@ -1569,12 +2052,12 @@ class OverlayService : Service() {
     private fun resultTypeface(): android.graphics.Typeface {
         cachedTypeface?.let { return it }
         val prefs = PreferencesManager.getInstance(this)
-        // 1) User-loaded font wins if the file is still present (the user may have cleared/replaced
-        //    it through settings; we tolerate stale paths by falling back to the spinner choice).
-        val customPath = prefs.customFontPath
-        if (customPath.isNotEmpty()) {
+        val name = prefs.translationFont
+        // 1) One of the user's own font files. A stale entry (file deleted out from under us) falls
+        //    through to the bundled list rather than failing the render.
+        CustomFont.fromToken(name, prefs.customFonts)?.let { font ->
             try {
-                val f = java.io.File(customPath)
+                val f = font.file(this)
                 if (f.exists() && f.canRead()) {
                     val tf = android.graphics.Typeface.createFromFile(f)
                     cachedTypeface = tf
@@ -1585,7 +2068,6 @@ class OverlayService : Service() {
             }
         }
         // 2) Bundled .ttf in res/font/<name>.ttf
-        val name = prefs.translationFont
         val resId = resources.getIdentifier(name, "font", packageName)
         val tf = if (resId != 0) {
             androidx.core.content.res.ResourcesCompat.getFont(this, resId)
@@ -1651,6 +2133,16 @@ class OverlayService : Service() {
             )
             setOnClickListener { copyTranslationToClipboard(body) }
         }, LinearLayout.LayoutParams(dp(18), dp(18)))
+        header.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_close)
+            contentDescription = getString(R.string.close_result_card)
+            imageTintList = android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#8CFFFFFF")
+            )
+            // Dismisses this result, not the translator: auto scanning carries on and the next
+            // line brings a card back. Anyone wanting it gone for good has Close on the wheel.
+            setOnClickListener { clearShownTranslationImpl() }
+        }, LinearLayout.LayoutParams(dp(18), dp(18)).apply { marginStart = dp(14) })
 
         card.addView(header, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1702,6 +2194,8 @@ class OverlayService : Service() {
         spinnerParams.width = dp(prefs.spinnerSizeDp)
         spinnerParams.height = dp(prefs.spinnerSizeDp)
         if (::spinnerOverlay.isInitialized) windowManager.updateViewLayout(spinnerOverlay, spinnerParams)
+        // The wheel's merge glyph reports a preference Settings can change too, so re-read it.
+        (controlPanel as? ControlWheel)?.setMergeCovers(prefs.mergeAdjacentBoxes)
         // Refresh overlays with new settings
         translationData.value?.let { updateOverlays(it) }
     }

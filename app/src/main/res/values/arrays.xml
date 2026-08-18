@@ -25,6 +25,40 @@
     </string-array>
 
     <!-- Language codes for API calls -->
+    <!--
+      Sample the connection test sends, one per entry of language_codes and in the same order —
+      these are read by index, so the two arrays must stay aligned.
+
+      Not in values-<locale>/: this is the *source* language being translated from, which has
+      nothing to do with the language the UI is displayed in. Each is a pangram, proverb or
+      public-domain opening line — recognisable enough that a wrong or garbled reply is obvious at
+      a glance, and short enough to cost almost nothing per test.
+
+      Index 0 is the auto-detect fallback; any language would do, so it takes the English one.
+    -->
+    <string-array name="connection_test_samples">
+        <item>The quick brown fox jumps over the lazy dog.</item>
+        <item>The quick brown fox jumps over the lazy dog.</item>
+        <item>床前明月光，疑是地上霜。</item>
+        <item>En un lugar de la Mancha, de cuyo nombre no quiero acordarme.</item>
+        <item>कोशिश करने वालों की कभी हार नहीं होती।</item>
+        <item>الصديق وقت الضيق.</item>
+        <item>Águas passadas não movem moinhos.</item>
+        <item>আমার সোনার বাংলা, আমি তোমায় ভালোবাসি।</item>
+        <item>Съешь же ещё этих мягких французских булок, да выпей чаю.</item>
+        <item>吾輩は猫である。名前はまだ無い。</item>
+        <item>ਸਭ ਤੋਂ ਵੱਡਾ ਧਰਮ ਸੱਚ ਬੋਲਣਾ ਹੈ।</item>
+        <item>Franz jagt im komplett verwahrlosten Taxi quer durch Bayern.</item>
+        <item>Sapa sing nandur, bakal ngunduh.</item>
+        <item>Portez ce vieux whisky au juge blond qui fume.</item>
+        <item>Pijamalı hasta yağız şoföre çabucak güvendi.</item>
+        <item>가는 말이 고와야 오는 말이 곱다.</item>
+        <item>Ăn quả nhớ kẻ trồng cây.</item>
+        <item>Nel mezzo del cammin di nostra vita.</item>
+        <item>เป็นมนุษย์สุดประเสริฐเลิศคุณค่า</item>
+        <item>Pchnąć w tę łódź jeża lub ośm skrzyń fig.</item>
+    </string-array>
+
     <string-array name="language_codes">
         <item>auto</item>
         <item>en</item>
@@ -84,16 +118,6 @@
         <item>claude-haiku-4-5</item>
         <item>deepseek-v4-flash</item>
         <item>deepseek-v4-pro</item>
-    </string-array>
-
-    <!-- Folded floating-bar favorite -->
-    <string-array name="fold_options">
-        <item>Manual translate</item>
-        <item>Auto mode</item>
-    </string-array>
-    <string-array name="fold_option_values">
-        <item>manual</item>
-        <item>auto</item>
     </string-array>
 
     <!-- Overlay text / background colors -->

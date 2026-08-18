@@ -21,6 +21,7 @@ import java.util.Locale
 import com.example.ocr_translation.TranslationService.TranslatedBlock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import android.app.Notification
 import android.app.NotificationChannel
@@ -53,7 +54,12 @@ class ScreenCaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
-    private val serviceScope = CoroutineScope(Dispatchers.IO)
+    // SupervisorJob: without one, CoroutineScope() supplies a plain Job, and a plain Job is
+    // cancelled by any child that fails. That would take the scope with it — the capture loop
+    // stops, every later launch is a no-op, and nothing says so: the service stays in the
+    // foreground with its notification up and simply never translates again. Failures should stay
+    // with the coroutine that had them.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var translationService: TranslationService
     private lateinit var translationCache: TranslationCache
 
@@ -209,7 +215,13 @@ class ScreenCaptureService : Service() {
             },
             onUnchanged = {
                 OverlayService.hideSpinner()
-                if (PreferencesManager.getInstance(this).inPlaceMode) OverlayService.fadeInAfterCapture()
+                // Both modes. performTranslation fades the overlay out to get a clean frame and no
+                // longer fades it back in itself — that was removed so window mode wouldn't flash
+                // the old box before the new one arrives — which leaves exactly two ways back:
+                // onResult, for a pass that produced something, and this, for one that didn't.
+                // Gated on inPlaceMode, window mode had neither, so any "text hasn't changed"
+                // outcome left the card sitting at alpha 0 for good.
+                OverlayService.fadeInAfterCapture()
             }
         ) { results ->
             OverlayService.hideSpinner()
@@ -229,6 +241,14 @@ class ScreenCaptureService : Service() {
             } else {
                 Log.d(TAG, "Discarding stale translation — user tapped during it")
                 pendingOcrFingerprint = null
+                // A pass ends one of three ways — a result, no change, or discarded here — and
+                // performTranslation faded the overlay out at the start of all three. Only the
+                // first two put it back, so a tap during a translation stranded the window at
+                // alpha 0 with `faded` still set: every later pass ran, drew into an invisible
+                // window, and took fadeOutForCapture's already-faded early return. It looked like
+                // scanning had stopped, and a manual translation "fixed" it only because its own
+                // result goes through the branch above.
+                OverlayService.fadeInAfterCapture()
             }
         }
         // Start in manual mode so we don't OCR/translate the app's own UI on launch
@@ -660,10 +680,17 @@ class ScreenCaptureService : Service() {
         kotlinx.coroutines.delay(33)
         val frame = captureScreen()
 //        OverlayService.fadeInAfterCapture()   // view.alpha = 1f
+        // The tap that advanced the game is what brought us here, and this frame already shows
+        // where it landed — so it is spent, and the flag has to say so before the swallow reads
+        // it. Left set, it made the swallow treat the cause of this translation as a second,
+        // separate change: the box appeared, a redundant pass faded it out to re-read the same
+        // text, and onUnchanged faded it back. That is the flicker.
+        //
+        // Cleared here rather than after the call: a tap arriving while the model is answering is
+        // genuinely new, and must survive to be seen.
+        consumeUserInput()
         frame?.let { processScreenCapture(it, force) }
-        // Re-baseline against the screen now showing our box, so we detect the next real change
-        lastFingerprint = null
-        skipNextChange = true
+        reBaseline()
     }
 
     // Tiny downscaled snapshot used to detect on-screen change without hiding the overlay
@@ -707,9 +734,16 @@ class ScreenCaptureService : Service() {
         val raw = captureScreen() ?: return
         val changed = fingerprintChanged(fingerprint(raw, activeTranslationArea))
         raw.recycle()
-        if (changed && skipNextChange) {   // 这是翻译后的重新基线，不是真变化
+        if (changed && skipNextChange) {
             skipNextChange = false
-            return                          // 基线已更新，不重译
+            // The re-baseline after a translation reports itself as a change, and this swallows
+            // it. But a tap during that translation advances the game, and its change arrives as
+            // the *same single* reading — so swallowing unconditionally spent the user's tap on
+            // the baseline. The screen was then quietly re-baselined to the new dialogue and sat
+            // there unchanged, and it took a second tap to produce a reading the swallow wasn't
+            // waiting for. Asking here, rather than deciding when the flag was set, also covers a
+            // tap that lands between the translation finishing and this tick.
+            if (!consumeUserInput()) return   // nothing else moved: baseline updated, don't retranslate
         }
         if (changed) {
             stableCount = 0
@@ -881,7 +915,24 @@ class ScreenCaptureService : Service() {
     private fun enterSteady() {
         inPlaceScanning = false
         steadyEnteredAt = android.os.SystemClock.elapsedRealtime()
+        reBaseline()
+    }
+
+    /**
+     * Drops the change-detection baseline, and arms the flag that keeps the drop from being read
+     * as a change.
+     *
+     * The two belong together, because the two detectors disagree about what a missing baseline
+     * means: [fingerprintDiff], which in-place mode uses, reports no change; [fingerprintChanged],
+     * which merged mode uses, reports a change. So in merged mode every re-baseline announces
+     * itself as movement on screen, and without [skipNextChange] to swallow it the loop translates
+     * again — the self-feedback that made the box flicker once a second, fixed for
+     * [performTranslation] and never applied to [enterSteady], which is the path a manual
+     * translation leaves through.
+     */
+    private fun reBaseline() {
         lastFingerprint = null   // re-baseline against the screen now showing our box
+        skipNextChange = true
     }
 
     private fun fingerprintDiff(fp: IntArray): Double {

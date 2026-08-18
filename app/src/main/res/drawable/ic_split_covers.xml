@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The merged state: one solid bar, with an arrow splitting it back into two. Mirrors ic_pause
+  standing in for Auto — the armed glyph says what the tap will do, not what is currently on.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,3h16v6h-16z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,15h16v6h-16z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,10l3,3h-6z" />
+</vector>
