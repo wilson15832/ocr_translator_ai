@@ -199,7 +199,6 @@ class TranslationService private constructor(private val context: Context) {
         userPrompt: String,
         gateway: Gateway? = null
     ): ConnectionTest = withContext(Dispatchers.IO) {
-        val started = System.currentTimeMillis()
         try {
             // The gateway's token is checked on its own first. Sent with a bad one, the gateway
             // rejects the call before the vendor ever sees it, and the reply says nothing about
@@ -207,6 +206,11 @@ class TranslationService private constructor(private val context: Context) {
             if (gateway != null) {
                 verifyGatewayToken(gateway.token)?.let { return@withContext it }
             }
+            // Timed from here, not from the top: the check above is a second round trip, to a host
+            // a translation never talks to, and counting it made the proxied path look seconds
+            // slower than it is. What this number is for is comparing routes, so it has to measure
+            // only the part both routes actually do.
+            val started = System.currentTimeMillis()
             val prompt = userPrompt
                 .replace("{source}", sourceLanguage)
                 .replace("{target}", targetLanguage)
