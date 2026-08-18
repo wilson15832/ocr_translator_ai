@@ -53,6 +53,17 @@
     <string name="model">模型</string>
     <string name="use_local_model">使用本地模型</string>
     <string name="use_local_model_hint">使用本地模型时无需 API 密钥。</string>
+
+    <!-- Cloudflare AI Gateway：在所选厂商前面加的一跳中转 -->
+    <string name="cf_section">Cloudflare AI 网关</string>
+    <string name="cf_proxy">通过 Cloudflare 中转</string>
+    <string name="cf_proxy_hint">所有服务商都改走你的网关，不再直连厂商。</string>
+    <string name="cf_account_id">账户 ID</string>
+    <string name="cf_account_hint">未设置</string>
+    <string name="cf_gateway_name">网关名称</string>
+    <string name="cf_token">网关令牌</string>
+    <string name="cf_footnote">厂商自己的 API 密钥仍然必填——网关只是转发它。网关令牌会在连通测试时单独验证。</string>
+    <string name="cf_incomplete">请填写账户 ID 和网关令牌</string>
     <string name="add_model">添加模型…</string>
     <string name="add_model_for">为 %1$s 添加模型</string>
     <string name="add_model_title_label">显示名称</string>

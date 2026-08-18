@@ -117,6 +117,38 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
+     * The gateway as the screen currently has it, or null to test the vendor directly.
+     *
+     * Read from the views for the same reason the key and model are: the point of the test is to
+     * find out whether what you just typed works, before it is saved.
+     */
+    private fun liveGateway(): TranslationService.Gateway? {
+        if (!binding.switchCloudflareProxy.isChecked) return null
+        val account = binding.editCloudflareAccount.text.toString().trim()
+        val token = binding.editCloudflareToken.text.toString().trim()
+        if (account.isEmpty() || token.isEmpty()) return null
+        val name = binding.editCloudflareGateway.text.toString().trim()
+            .ifBlank { PreferencesManager.DEFAULT_CF_GATEWAY }
+        return TranslationService.Gateway(account, name, token)
+    }
+
+    /** Greys out the gateway's fields when the proxy is off, as the API rows do for local model. */
+    private fun applyCloudflareState(enabled: Boolean) {
+        val alpha = if (enabled) 1f else 0.4f
+        listOf(
+            binding.layoutCloudflareAccount,
+            binding.layoutCloudflareGateway,
+            binding.layoutCloudflareToken
+        ).forEach { it.isEnabled = enabled; it.alpha = alpha }
+        listOf(
+            binding.editCloudflareAccount,
+            binding.editCloudflareGateway,
+            binding.editCloudflareToken
+        ).forEach { it.isEnabled = enabled }
+        binding.btnToggleCloudflareToken.isEnabled = enabled
+    }
+
+    /**
      * Sends one real translation request using what is currently on screen, and reports what came
      * back — the mirror of Overlay Settings' preview card, for the half of the settings whose
      * effect you otherwise only discover mid-game.
@@ -151,7 +183,8 @@ class SettingsActivity : AppCompatActivity() {
                 sourceLanguage = preferencesManager.sourceLanguage,
                 targetLanguage = preferencesManager.targetLanguage,
                 systemPrompt = system,
-                userPrompt = user
+                userPrompt = user,
+                gateway = liveGateway()
             )
             binding.textTestResult.text = when (result) {
                 is TranslationService.ConnectionTest.Success ->
@@ -403,6 +436,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchUseLocalModel.isChecked = preferencesManager.useLocalModel
         populateModels(currentProvider, preferencesManager.modelName)
         binding.editApiKey.setText(preferencesManager.getApiKey(currentProvider))
+        binding.switchCloudflareProxy.isChecked = preferencesManager.cloudflareProxyEnabled
+        binding.editCloudflareAccount.setText(preferencesManager.cloudflareAccountId)
+        binding.editCloudflareGateway.setText(preferencesManager.cloudflareGateway)
+        binding.editCloudflareToken.setText(preferencesManager.cloudflareToken)
+        applyCloudflareState(preferencesManager.cloudflareProxyEnabled)
         applyLocalModelState(preferencesManager.useLocalModel)
 
         // Capture settings
@@ -614,6 +652,29 @@ class SettingsActivity : AppCompatActivity() {
         // Local model switch
         binding.switchUseLocalModel.switch.setOnCheckedChangeListener { _, isChecked ->
             applyLocalModelState(isChecked)
+        }
+
+        binding.switchCloudflareProxy.switch.setOnCheckedChangeListener { _, isChecked ->
+            applyCloudflareState(isChecked)
+            if (isChecked && liveGateway() == null) {
+                Toast.makeText(this, R.string.cf_incomplete, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Reveal / hide the gateway token, the same affordance the API key row carries.
+        binding.btnToggleCloudflareToken.setOnClickListener {
+            val field = binding.editCloudflareToken
+            val hidden = field.inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD != 0
+            val cursor = field.selectionStart
+            val face = field.typeface
+            field.inputType =
+                if (hidden) InputType.TYPE_CLASS_TEXT
+                else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            field.typeface = face
+            field.setSelection(cursor.coerceIn(0, field.text?.length ?: 0))
+            binding.btnToggleCloudflareToken.setImageResource(
+                if (hidden) R.drawable.ic_visibility_off else R.drawable.ic_visibility
+            )
         }
 
         // Speech-bubble style changes the preview's corner radius / border
@@ -864,6 +925,10 @@ class SettingsActivity : AppCompatActivity() {
         preferencesManager.userPrompt =
             binding.editUserPrompt.text.toString().ifBlank { PreferencesManager.DEFAULT_USER_PROMPT }
         preferencesManager.useLocalModel = binding.switchUseLocalModel.isChecked
+        preferencesManager.cloudflareProxyEnabled = binding.switchCloudflareProxy.isChecked
+        preferencesManager.cloudflareAccountId = binding.editCloudflareAccount.text.toString()
+        preferencesManager.cloudflareGateway = binding.editCloudflareGateway.text.toString()
+        preferencesManager.cloudflareToken = binding.editCloudflareToken.text.toString()
         preferencesManager.maxTokens = binding.sliderMaxTokens.slider.value.toInt()
 
         // Capture settings

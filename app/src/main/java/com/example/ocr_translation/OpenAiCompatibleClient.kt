@@ -7,14 +7,21 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/** Serves any OpenAI-compatible chat-completions API (DeepSeek, OpenAI, …). */
+/**
+ * Serves any OpenAI-compatible chat-completions API (DeepSeek, OpenAI, …).
+ *
+ * [extraHeaders] exists for proxies that authenticate themselves separately from the vendor:
+ * Cloudflare's AI Gateway wants its own token in `cf-aig-authorization` while the vendor key stays
+ * in `Authorization`, so the two travel together rather than one standing in for the other.
+ */
 class OpenAiCompatibleClient(
     private val httpClient: OkHttpClient,
     private val gson: Gson,
     private val apiKey: String,
     private val endpoint: String,
     private val model: String,
-    private val maxTokens: Int
+    private val maxTokens: Int,
+    private val extraHeaders: Map<String, String> = emptyMap()
 ) : LlmClient {
 
     private data class Message(
@@ -69,6 +76,7 @@ class OpenAiCompatibleClient(
         val request = Request.Builder()
             .url(endpoint)
             .addHeader("Authorization", "Bearer $apiKey")
+            .apply { extraHeaders.forEach { (name, value) -> addHeader(name, value) } }
             .post(body)
             .build()
 

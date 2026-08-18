@@ -83,10 +83,34 @@ class TranslationService private constructor(private val context: Context) {
         config.systemPrompt = preferencesManager.systemPrompt
         config.userPrompt = preferencesManager.userPrompt
         apiKey = preferencesManager.activeApiKey
+        gateway = Gateway.from(preferencesManager)
     }
 
+    /** Cloudflare AI Gateway settings for the current request, or null to go straight to the vendor. */
+    data class Gateway(val accountId: String, val name: String, val token: String) {
+        /**
+         * One endpoint for every vendor. `compat` is the OpenAI-compatible surface, which is what
+         * lets a single client serve all four — the vendor is named in the model instead of in the
+         * URL.
+         */
+        val endpoint: String
+            get() = "https://gateway.ai.cloudflare.com/v1/$accountId/$name/compat/chat/completions"
+
+        companion object {
+            fun from(prefs: PreferencesManager): Gateway? =
+                if (!prefs.cloudflareProxyReady) null
+                else Gateway(
+                    prefs.cloudflareAccountId,
+                    prefs.cloudflareGateway,
+                    prefs.cloudflareToken
+                )
+        }
+    }
+
+    private var gateway: Gateway? = null
+
     private fun createLlmClient(): LlmClient =
-        buildClient(config.provider, config.modelName, apiKey, config.maxTokens)
+        buildClient(config.provider, config.modelName, apiKey, config.maxTokens, gateway)
 
     /**
      * Switched on the provider rather than the model's prefix: the URL and payload format are a
@@ -97,6 +121,34 @@ class TranslationService private constructor(private val context: Context) {
      * a client for settings the user has typed but not yet saved without disturbing the live one.
      */
     private fun buildClient(
+        provider: LlmProvider, model: String, key: String, maxTokens: Int, gateway: Gateway?
+    ): LlmClient {
+        if (gateway != null) return gatewayClient(provider, model, key, maxTokens, gateway)
+        return directClient(provider, model, key, maxTokens)
+    }
+
+    /**
+     * Everything through Cloudflare's OpenAI-compatible endpoint, whichever vendor it is.
+     *
+     * That endpoint normalises the request shape, so Gemini and Claude — which have their own
+     * clients precisely because their wire formats differ — arrive here as ordinary chat
+     * completions. The vendor moves out of the URL and into the model, prefixed with its gateway
+     * slug, and the gateway's token travels beside the vendor key rather than replacing it.
+     *
+     * A model the user has already prefixed is left alone, so a code copied straight from
+     * Cloudflare's dashboard works as typed.
+     */
+    private fun gatewayClient(
+        provider: LlmProvider, model: String, key: String, maxTokens: Int, gateway: Gateway
+    ): LlmClient {
+        val routed = if (model.contains('/')) model else "${provider.gatewaySlug}/$model"
+        return OpenAiCompatibleClient(
+            client, gson, key, gateway.endpoint, routed, maxTokens,
+            mapOf("cf-aig-authorization" to "Bearer ${gateway.token}")
+        )
+    }
+
+    private fun directClient(
         provider: LlmProvider, model: String, key: String, maxTokens: Int
     ): LlmClient = when (provider) {
         LlmProvider.DEEPSEEK ->
@@ -139,10 +191,17 @@ class TranslationService private constructor(private val context: Context) {
         sourceLanguage: String,
         targetLanguage: String,
         systemPrompt: String,
-        userPrompt: String
+        userPrompt: String,
+        gateway: Gateway? = null
     ): ConnectionTest = withContext(Dispatchers.IO) {
         val started = System.currentTimeMillis()
         try {
+            // The gateway's token is checked on its own first. Sent with a bad one, the gateway
+            // rejects the call before the vendor ever sees it, and the reply says nothing about
+            // which of the two credentials was wrong — the whole point of this screen.
+            if (gateway != null) {
+                verifyGatewayToken(gateway.token)?.let { return@withContext it }
+            }
             val prompt = userPrompt
                 .replace("{source}", sourceLanguage)
                 .replace("{target}", targetLanguage)
@@ -152,7 +211,8 @@ class TranslationService private constructor(private val context: Context) {
             // markers are only stripped off the front, so a reply that came back wrong still shows
             // as wrong.
             val reply = stripBlockMarkers(
-                buildClient(provider, model, key, maxTokens).translate(systemPrompt, prompt)
+                buildClient(provider, model, key, maxTokens, gateway)
+                    .translate(systemPrompt, prompt)
             )
             if (reply.isEmpty()) {
                 ConnectionTest.Failure("Empty response")
@@ -165,6 +225,31 @@ class TranslationService private constructor(private val context: Context) {
     }
 
     /**
+     * Asks Cloudflare whether the token is valid at all. Returns a failure to report, or null when
+     * the token checks out and the test should carry on to the vendor.
+     *
+     * A separate endpoint from the gateway, and deliberately so: it answers for the token alone,
+     * with no vendor key involved, which is what makes "the gateway token is wrong" distinguishable
+     * from "the vendor key is wrong".
+     */
+    private fun verifyGatewayToken(token: String): ConnectionTest.Failure? {
+        val request = Request.Builder()
+            .url("https://api.cloudflare.com/client/v4/user/tokens/verify")
+            .addHeader("Authorization", "Bearer $token")
+            .get()
+            .build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.isSuccessful) null
+                else ConnectionTest.Failure("Cloudflare token: ${response.code} $body")
+            }
+        } catch (e: Exception) {
+            ConnectionTest.Failure("Cloudflare unreachable: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    /**
      * 预热：开始翻译时对当前 provider 的 host 建立一次连接（TLS/HTTP2 握手），
      * 连接进 OkHttp 连接池，首次真实翻译复用、省掉握手延迟。best-effort，失败忽略。
      */
@@ -172,7 +257,10 @@ class TranslationService private constructor(private val context: Context) {
         loadConfig(PreferencesManager.getInstance(context))
         if (config.useLocalModel || apiKey.isBlank()) return
 
-        val host = when (config.provider) {
+        // With the proxy on, the vendor's host is no longer the one we connect to — warming it
+        // would hold open a connection nothing uses and leave the first real request paying for
+        // the handshake this exists to avoid.
+        val host = if (gateway != null) "https://gateway.ai.cloudflare.com/" else when (config.provider) {
             LlmProvider.DEEPSEEK -> "https://api.deepseek.com/"
             LlmProvider.CHATGPT  -> "https://api.openai.com/"
             LlmProvider.GEMINI   -> "https://generativelanguage.googleapis.com/"

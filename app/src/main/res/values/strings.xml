@@ -35,6 +35,18 @@
     <string name="model">Model</string>
     <string name="use_local_model">Use local model</string>
     <string name="use_local_model_hint">No API key is needed with a local model.</string>
+
+    <!-- Cloudflare AI Gateway: an optional hop in front of whichever vendor is selected -->
+    <string name="cf_section">Cloudflare AI Gateway</string>
+    <string name="cf_proxy">Route through Cloudflare</string>
+    <string name="cf_proxy_hint">Sends every provider through your gateway instead of straight to the vendor.</string>
+    <string name="cf_account_id">Account ID</string>
+    <string name="cf_account_hint">Not set</string>
+    <string name="cf_gateway_name">Gateway</string>
+    <string name="cf_gateway_default" translatable="false">default</string>
+    <string name="cf_token">Gateway token</string>
+    <string name="cf_footnote">The API key for the chosen provider is still required — the gateway forwards it. The gateway token is checked separately when you run the connection test.</string>
+    <string name="cf_incomplete">Enter an account ID and a gateway token</string>
     <!-- Custom models: vendors ship new models faster than the bundled list can follow -->
     <string name="add_model">Add model…</string>
     <string name="add_model_for">Add model for %1$s</string>

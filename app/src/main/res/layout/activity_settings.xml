@@ -274,6 +274,161 @@
                     style="@style/IosFootnote"
                     android:text="@string/use_local_model_hint" />
 
+                <!-- ===== Cloudflare AI Gateway ===== -->
+                <TextView
+                    style="@style/IosGroupHeader"
+                    android:text="@string/cf_section" />
+
+                <com.example.ocr_translation.ui.SettingsGroup
+                    style="@style/IosGroup"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp">
+
+                    <com.example.ocr_translation.ui.SettingsRow
+                        android:id="@+id/switchCloudflareProxy"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        app:srAccessory="toggle"
+                        app:srSubtitle="@string/cf_proxy_hint"
+                        app:srTitle="@string/cf_proxy" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutCloudflareAccount"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:minHeight="44dp"
+                        android:orientation="horizontal"
+                        android:paddingStart="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="4dp">
+
+                        <TextView
+                            style="@style/IosRowLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/cf_account_id" />
+
+                        <androidx.appcompat.widget.AppCompatEditText
+                            android:id="@+id/editCloudflareAccount"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:gravity="end|center_vertical"
+                            android:hint="@string/cf_account_hint"
+                            android:importantForAutofill="no"
+                            android:inputType="text"
+                            android:letterSpacing="-0.02"
+                            android:maxLines="1"
+                            android:minHeight="36dp"
+                            android:paddingStart="0dp"
+                            android:paddingTop="0dp"
+                            android:paddingEnd="0dp"
+                            android:paddingBottom="0dp"
+                            android:textColor="@color/ios_label"
+                            android:textColorHint="@color/ios_label_tertiary"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/layoutCloudflareGateway"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:minHeight="44dp"
+                        android:orientation="horizontal"
+                        android:paddingStart="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="4dp">
+
+                        <TextView
+                            style="@style/IosRowLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/cf_gateway_name" />
+
+                        <androidx.appcompat.widget.AppCompatEditText
+                            android:id="@+id/editCloudflareGateway"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:gravity="end|center_vertical"
+                            android:hint="@string/cf_gateway_default"
+                            android:importantForAutofill="no"
+                            android:inputType="text"
+                            android:letterSpacing="-0.02"
+                            android:maxLines="1"
+                            android:minHeight="36dp"
+                            android:paddingStart="0dp"
+                            android:paddingTop="0dp"
+                            android:paddingEnd="0dp"
+                            android:paddingBottom="0dp"
+                            android:textColor="@color/ios_label"
+                            android:textColorHint="@color/ios_label_tertiary"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/layoutCloudflareToken"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:minHeight="44dp"
+                        android:orientation="horizontal"
+                        android:paddingStart="16dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="16dp"
+                        android:paddingBottom="4dp">
+
+                        <TextView
+                            style="@style/IosRowLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/cf_token" />
+
+                        <androidx.appcompat.widget.AppCompatEditText
+                            android:id="@+id/editCloudflareToken"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="12dp"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:gravity="end|center_vertical"
+                            android:hint="@string/api_key_unset"
+                            android:importantForAutofill="no"
+                            android:inputType="textPassword"
+                            android:letterSpacing="-0.02"
+                            android:maxLines="1"
+                            android:minHeight="36dp"
+                            android:paddingStart="0dp"
+                            android:paddingTop="0dp"
+                            android:paddingEnd="0dp"
+                            android:paddingBottom="0dp"
+                            android:textColor="@color/ios_label"
+                            android:textColorHint="@color/ios_label_tertiary"
+                            android:textSize="14sp" />
+
+                        <ImageView
+                            android:id="@+id/btnToggleCloudflareToken"
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_marginStart="10dp"
+                            android:contentDescription="@string/api_key_reveal"
+                            android:src="@drawable/ic_visibility"
+                            app:tint="@color/ios_label_tertiary" />
+                    </LinearLayout>
+                </com.example.ocr_translation.ui.SettingsGroup>
+
+                <TextView
+                    style="@style/IosFootnote"
+                    android:text="@string/cf_footnote" />
+
                 <!-- ===== Prompts ===== -->
                 <TextView
                     style="@style/IosGroupHeader"

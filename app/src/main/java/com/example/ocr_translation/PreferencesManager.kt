@@ -50,6 +50,11 @@ class PreferencesManager private constructor(context: Context) {
         private const val KEY_MERGE_ADJACENT = "merge_adjacent_boxes"
         private const val KEY_MERGE_ADJACENT_GAP = "merge_adjacent_gap_dp"
         private const val KEY_CUSTOM_FONTS = "custom_fonts"
+        private const val KEY_CF_PROXY = "cloudflare_proxy_enabled"
+        private const val KEY_CF_ACCOUNT = "cloudflare_account_id"
+        private const val KEY_CF_GATEWAY = "cloudflare_gateway"
+        private const val SECURE_KEY_CF_TOKEN = "cloudflare_aig_token"
+        const val DEFAULT_CF_GATEWAY = "default"
         private const val LEGACY_CUSTOM_FONT_PATH = "custom_font_path"
         private const val KEY_SPINNER_ALPHA = "spinner_alpha"
         private const val KEY_SPINNER_SIZE_DP = "spinner_size_dp"
@@ -145,6 +150,39 @@ class PreferencesManager private constructor(context: Context) {
         if (value.isBlank()) SecureStorage.removeEncryptedValue(appContext, provider.secureKey)
         else SecureStorage.setEncryptedValue(appContext, provider.secureKey, value.trim())
     }
+
+    // ---- Cloudflare AI Gateway ----
+    // An optional hop in front of whichever vendor is selected. The vendor key still travels in
+    // `Authorization`; the gateway's own token rides alongside in `cf-aig-authorization`, so both
+    // are needed and neither replaces the other.
+
+    var cloudflareProxyEnabled: Boolean
+        get() = prefs.getBoolean(KEY_CF_PROXY, false)
+        set(value) = prefs.edit { putBoolean(KEY_CF_PROXY, value) }
+
+    /** The account the gateway belongs to — the first path segment of its URL. */
+    var cloudflareAccountId: String
+        get() = prefs.getString(KEY_CF_ACCOUNT, "") ?: ""
+        set(value) = prefs.edit { putString(KEY_CF_ACCOUNT, value.trim()) }
+
+    /** Gateway name, the second path segment. Cloudflare creates one called `default`. */
+    var cloudflareGateway: String
+        get() = (prefs.getString(KEY_CF_GATEWAY, "") ?: "").ifBlank { DEFAULT_CF_GATEWAY }
+        set(value) = prefs.edit { putString(KEY_CF_GATEWAY, value.trim()) }
+
+    /** Gateway token. Secret, so it lives with the vendor keys rather than in plain preferences. */
+    var cloudflareToken: String
+        get() = SecureStorage.getEncryptedValue(appContext, SECURE_KEY_CF_TOKEN) ?: ""
+        set(value) {
+            if (value.isBlank()) SecureStorage.removeEncryptedValue(appContext, SECURE_KEY_CF_TOKEN)
+            else SecureStorage.setEncryptedValue(appContext, SECURE_KEY_CF_TOKEN, value.trim())
+        }
+
+    /** Whether the proxy is both switched on and configured well enough to be used. */
+    val cloudflareProxyReady: Boolean
+        get() = cloudflareProxyEnabled &&
+                cloudflareAccountId.isNotBlank() &&
+                cloudflareToken.isNotBlank()
 
     /**
      * Provider that owns [code], checking user-added models before falling back to the prefix
