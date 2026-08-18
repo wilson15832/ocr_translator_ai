@@ -22,9 +22,21 @@ enum class LlmProvider(
      * which is what took its latency from a 13s tail to about a second. Nobody else knows the
      * field.
      */
-    val disablesThinking: Boolean = false
+    val disablesThinking: Boolean = false,
+    /**
+     * Whether the output cap is called `max_completion_tokens` rather than `max_tokens`.
+     *
+     * OpenAI renamed it and its newer models reject the old name outright. Everyone else on the
+     * OpenAI-compatible shape — DeepSeek directly, and whatever the gateway's compat layer
+     * forwards — still takes `max_tokens`, so this cannot be a blanket change.
+     */
+    val usesMaxCompletionTokens: Boolean = false
 ) {
-    CHATGPT("Chatgpt", "chatgpt", "gpt", "openai", reasoningEffort = "minimal"),
+    CHATGPT(
+        "Chatgpt", "chatgpt", "gpt", "openai",
+        reasoningEffort = "minimal",
+        usesMaxCompletionTokens = true
+    ),
     DEEPSEEK("DeepSeek", "api_key_deepseek", "deepseek", "deepseek", disablesThinking = true),
     /**
      * `low`, not `minimal`. Gemini's models don't all take the same levels — 3.6-flash and

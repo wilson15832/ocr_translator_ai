@@ -32,7 +32,8 @@ class OpenAiCompatibleClient(
      * 400: `Unknown name "thinking": Cannot find field.`
      */
     private val reasoningEffort: String? = null,
-    private val disableThinking: Boolean = false
+    private val disableThinking: Boolean = false,
+    private val useMaxCompletionTokens: Boolean = false
 ) : LlmClient {
 
     private data class Message(
@@ -47,7 +48,10 @@ class OpenAiCompatibleClient(
         @SerializedName("messages") val messages: List<Message>,
         @SerializedName("stream") val stream: Boolean = false,
         @SerializedName("temperature") val temperature: Double = 0.2,
-        @SerializedName("max_tokens") val maxTokens: Int = 2048,
+        // Two names for one cap; exactly one is filled in and Gson omits the other. See
+        // LlmProvider.usesMaxCompletionTokens for why it can't just be renamed.
+        @SerializedName("max_tokens") val maxTokens: Int? = null,
+        @SerializedName("max_completion_tokens") val maxCompletionTokens: Int? = null,
         @SerializedName("reasoning_effort") val reasoningEffort: String? = null,
         @SerializedName("thinking") val thinking: ThinkingConfig? = null
     )
@@ -78,7 +82,8 @@ class OpenAiCompatibleClient(
         val payload = ChatRequest(
             model = model,
             messages = messages,
-            maxTokens = maxTokens,
+            maxTokens = if (useMaxCompletionTokens) null else maxTokens,
+            maxCompletionTokens = if (useMaxCompletionTokens) maxTokens else null,
             reasoningEffort = reasoningEffort,
             // Gson omits nulls, so an unset extension simply isn't in the body.
             thinking = if (disableThinking) ThinkingConfig("disabled") else null
