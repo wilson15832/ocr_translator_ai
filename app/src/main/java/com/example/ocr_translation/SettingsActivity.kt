@@ -38,6 +38,16 @@ class SettingsActivity : AppCompatActivity() {
     private var currentCodes: List<String> = emptyList()   // 当前公司的模型码（save 时按下标取）
     private var currentModelNames: List<String> = emptyList()
 
+    /**
+     * Each provider's chosen model, remembered while the screen is open.
+     *
+     * Only one model is persisted — the active one, in [PreferencesManager.modelName] — but the
+     * picker shows a different list per provider, so switching provider used to reset the choice to
+     * that list's first entry, and switching back lost what you had picked. This keeps each
+     * provider's selection so a switch is a switch, not a reset.
+     */
+    private val selectedCodeByProvider = mutableMapOf<LlmProvider, String>()
+
     // The Spinners became picker rows, so the "selected position" each one used to hold for us
     // now lives here and is read back in saveSettings().
     private var modelIndex = 0
@@ -561,8 +571,11 @@ class SettingsActivity : AppCompatActivity() {
             val np = LlmProvider.values()[position]
             if (np != currentProvider) {
                 preferencesManager.setApiKey(currentProvider, binding.editApiKey.text.toString()) // 先存旧公司的 key
+                // Remember the model chosen for the provider we're leaving, so coming back restores
+                // it rather than the list's first entry.
+                currentCodes.getOrNull(modelIndex)?.let { selectedCodeByProvider[currentProvider] = it }
                 currentProvider = np
-                populateModels(np)                                   // 切到新公司模型（选第一个）
+                populateModels(np, selectedCodeByProvider[np])
                 binding.editApiKey.setText(preferencesManager.getApiKey(np))
             }
         }
