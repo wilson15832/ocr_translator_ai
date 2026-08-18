@@ -32,9 +32,14 @@ enum class LlmProvider(
      */
     val usesMaxCompletionTokens: Boolean = false
 ) {
+    /**
+     * `none` — off, rather than the smallest amount of it. Translation gets nothing from a chain
+     * of thought it then discards, and the reasoning tokens are what the latency and the bill are
+     * made of.
+     */
     CHATGPT(
         "Chatgpt", "chatgpt", "gpt", "openai",
-        reasoningEffort = "minimal",
+        reasoningEffort = "none",
         usesMaxCompletionTokens = true
     ),
     DEEPSEEK("DeepSeek", "api_key_deepseek", "deepseek", "deepseek", disablesThinking = true),
